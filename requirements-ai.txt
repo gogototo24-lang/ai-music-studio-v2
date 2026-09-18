@@ -1,0 +1,7 @@
+# Optional heavy local-AI features.
+# Install only on a machine/server with enough RAM and disk.
+# Versions may need adjustment for your Python/CUDA environment.
+torch
+torchaudio
+audiocraft
+demucs
