@@ -10,7 +10,7 @@
 </head>
 <body>
 <main>
-<small>AI MUSIC STUDIO · v2.0</small>
+<small>AI MUSIC STUDIO · v2.0.1</small>
 <h1>貓掌影音音樂工作室</h1>
 <p>原創角色歌詞、女性口白、本機 BGM、音軌分離、Ducking 混音與直式 MV。</p>
 
@@ -34,6 +34,98 @@
 <button class="primary" onclick="voice()">生成口白</button>
 <div id="voiceOut"></div>
 </section>
+
+<section class="card">
+<h2>③ 本機武俠 BGM</h2>
+<div class="grid">
+<div><label>曲風</label><select id="style"><option value="wuxia_epic">武戲戰曲</option><option value="wuxia_zen">竹林文戲</option><option value="taiwanese_rock">台語搖滾</option><option value="tragic_ballad">悲情宿命</option><option value="dark_warlord">魔王降世</option></select></div>
+<div><label>秒數</label><input id="musicDur" type="number" min="5" max="180" value="20"></div>
+</div>
+<label>自訂 Prompt（可空白）</label><input id="musicPrompt">
+<button class="primary" onclick="music()">生成 BGM</button>
+<div id="musicOut"></div>
+</section>
+
+<section class="card">
+<h2>④ 音軌分離</h2>
+<label>影片／音訊</label><input id="extractFile" type="file" accept="audio/*,video/*">
+<button class="primary" onclick="extract()">分離人聲與伴奏</button>
+<div id="extractOut"></div>
+</section>
+
+<section class="card">
+<h2>⑤ Ducking 混音</h2>
+<label>口白音檔</label><input id="mixVoice" type="file" accept="audio/*">
+<label>BGM 音檔</label><input id="mixBgm" type="file" accept="audio/*">
+<button class="primary" onclick="mix()">自動混音</button>
+<div id="mixOut"></div>
+</section>
+
+<section class="card">
+<h2>⑥ 自動 MV</h2>
+<p>上傳角色圖／影片片段＋完成音訊，輸出 9:16 或 16:9 MP4。這裡是自動剪輯器，不會憑空生成角色動畫。超過 15 秒會在背景編碼，避免 HTTP 502。</p>
+<div class="grid">
+<div><label>比例</label><select id="aspect"><option value="9:16">9:16 Shorts/Reels</option><option value="16:9">16:9 YouTube</option></select></div>
+<div><label>秒數</label><input id="mvDur" type="number" min="5" max="60" value="30"></div>
+</div>
+<label>完成音訊</label><input id="mvAudio" type="file" accept="audio/*">
+<label>角色圖片／影片（可多選）</label><input id="mvMedia" type="file" accept="image/*,video/*" multiple>
+<button class="primary" onclick="mv()">輸出 MV</button>
+<div id="mvOut"></div>
+</section>
+
+<section class="card">
+<h2>系統狀態</h2>
+<button class="alt" onclick="health()">檢查後端</button>
+<div id="status" class="status">尚未檢查。</div>
+</section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const audio=url=>`<audio controls src="${url}"></audio><p><a href="${url}" target="_blank">開啟檔案</a></p>`;
+async function jfetch(url,opt){const r=await fetch(url,opt);let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.detail||j.error||("HTTP "+r.status));return j}
+async function health(){try{const j=await jfetch("/health");$("status").textContent=JSON.stringify(j,null,2);$("status").className="status ok"}catch(e){$("status").textContent=e.message}}
+async function lyrics(){try{const j=await jfetch("/api/lyrics/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({character_name:$("char").value,mode:$("mode").value,language:$("lang").value,hook_strength:$("hook").value})});$("title").value=j.title;$("lyrics").value=j.full_lyrics;$("voiceText").value=(j.full_lyrics.split("【副歌】")[0]||j.full_lyrics).slice(0,500)}catch(e){alert(e.message)}}
+async function voice(){try{const j=await jfetch("/api/voice/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:$("voiceText").value,preset:$("voicePreset").value,enable_reverb:true})});$("voiceOut").innerHTML=audio(j.audio_url)}catch(e){alert(e.message)}}
+async function music(){try{const j=await jfetch("/api/music/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style:$("style").value,prompt:$("musicPrompt").value,duration:Number($("musicDur").value)})});$("musicOut").innerHTML=audio(j.audio_url)+`<div class="status">${j.engine}: ${j.note||""}</div>`}catch(e){alert(e.message)}}
+async function extract(){const f=$("extractFile").files[0];if(!f)return alert("請選檔案");const fd=new FormData();fd.append("file",f);try{const j=await jfetch("/api/extract",{method:"POST",body:fd});$("extractOut").innerHTML=`<p>引擎：${j.engine}</p>${audio(j.vocal_url)}${audio(j.bgm_url)}`}catch(e){alert(e.message)}}
+async function mix(){const v=$("mixVoice").files[0],b=$("mixBgm").files[0];if(!v||!b)return alert("請選口白與 BGM");const fd=new FormData();fd.append("voice_file",v);fd.append("bgm_file",b);fd.append("voice_delay_ms","900");fd.append("bgm_volume","0.38");fd.append("ducking","true");try{const j=await jfetch("/api/mix",{method:"POST",body:fd});$("mixOut").innerHTML=`<p>${j.engine}</p>${audio(j.audio_url)}`}catch(e){alert(e.message)}}
+async function mv(){
+  const a=$("mvAudio").files[0], m=[...$("mvMedia").files];
+  if(!a||!m.length) return alert("請選完成音訊和至少一個畫面素材");
+  const fd=new FormData();
+  fd.append("title",$("title").value||"AI Music Studio MV");
+  fd.append("lyrics",$("lyrics").value);
+  fd.append("aspect",$("aspect").value);
+  fd.append("duration",$("mvDur").value);
+  fd.append("audio_file",a);
+  m.forEach(x=>fd.append("media_files",x));
+  try{
+    $("mvOut").innerHTML='<div class="status">已送出，背景渲染中…請不要關閉頁面</div>';
+    const j=await jfetch("/api/mv/render",{method:"POST",body:fd});
+    if(j.video_url){
+      $("mvOut").innerHTML=`<video controls src="${j.video_url}"></video><p><a href="${j.video_url}" target="_blank">開啟 MP4</a></p>`;
+      return;
+    }
+    const jobId=j.job_id;
+    for(let i=0;i<90;i++){
+      await new Promise(r=>setTimeout(r,2000));
+      const s=await jfetch("/api/mv/status/"+jobId);
+      $("mvOut").innerHTML=`<div class="status">狀態：${s.status}（${i*2} 秒）</div>`;
+      if(s.status==="success"){
+        $("mvOut").innerHTML=`<video controls src="${s.video_url}"></video><p><a href="${s.video_url}" target="_blank">開啟 MP4</a></p>`;
+        return;
+      }
+      if(s.status==="error") throw Error(s.detail||"渲染失敗");
+    }
+    throw Error("等待逾時，請再試一次或把秒數降到 30");
+  }catch(e){alert(e.message)}
+}
+health();
+</script>
+</body>
+</html>
 
 <section class="card">
 <h2>③ 本機武俠 BGM</h2>
