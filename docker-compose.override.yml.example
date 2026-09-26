@@ -1,0 +1,22 @@
+# Docker Compose Override for Development
+# Rename to docker-compose.override.yml to use
+
+version: '3.8'
+
+services:
+  ai-music-studio-lite:
+    volumes:
+      - ./outputs:/app/outputs
+      - ./app.py:/app/app.py
+      - ./music_engine.py:/app/music_engine.py
+      - ./voice_engine.py:/app/voice_engine.py
+    environment:
+      - DEBUG=true
+
+  ai-music-studio-ai:
+    volumes:
+      - ./outputs:/app/outputs
+      - ./app.py:/app/app.py
+      - ./music_engine.py:/app/music_engine.py
+    environment:
+      - MUSICGEN_DEVICE=cuda

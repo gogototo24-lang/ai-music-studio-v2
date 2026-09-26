@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  ai-music-studio-lite:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: lite
+    container_name: ai-music-studio-lite
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - MAX_UPLOAD_MB=120
+      - CORS_ORIGINS=https://gogototo24-lang.github.io
+    volumes:
+      - ./outputs:/app/outputs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  ai-music-studio-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ai
+    container_name: ai-music-studio-ai
+    ports:
+      - "8001:8000"
+    environment:
+      - PORT=8000
+      - MAX_UPLOAD_MB=120
+      - CORS_ORIGINS=https://gogototo24-lang.github.io
+      - MUSICGEN_DEVICE=cpu
+      # For GPU, change to: MUSICGEN_DEVICE=cuda
+    volumes:
+      - ./outputs:/app/outputs
+    # Uncomment for GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s

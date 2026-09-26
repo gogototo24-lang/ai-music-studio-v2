@@ -2,8 +2,12 @@
 # Install only on a machine/server with enough RAM and disk.
 # Versions may need adjustment for your Python/CUDA environment.
 
-torch
-# GPU-enabled environment usually benefits from matching CUDA support.
-torchaudio
-audiocraft
-demucs
+# Core AI dependencies
+torch>=2.0.0
+torchaudio>=2.0.0
+audiocraft>=1.0.0
+demucs>=4.0.0
+
+# Note: If you have an NVIDIA GPU, install CUDA-enabled versions:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+#   (Replace cu121 with your CUDA version)
