@@ -37,6 +37,34 @@ pip install -r requirements-ai.txt
 
 這兩個功能需要較多 RAM / 硬碟，MusicGen 在 GPU 環境會比較實用。
 
+## 進階設定（MusicGen）
+可透過環境變數覆寫模型與裝置：
+
+```bash
+export MUSICGEN_MODEL=facebook/musicgen-small
+export MUSICGEN_DEVICE=cuda
+export PORT=8000
+```
+
+若 `MUSICGEN_DEVICE` 未設定，系統會自動檢查：
+- 先用 CUDA（若可用）
+- 否則退回 CPU
+
+## API
+- `GET /health`
+- `GET /api/music/status`
+- `POST /api/lyrics/generate`
+- `POST /api/voice/generate`
+- `POST /api/music/generate`
+- `POST /api/extract`
+- `POST /api/mix`
+- `POST /api/mv/render`
+
+## 生成引擎策略
+- MusicGen 可用：優先使用 MusicGen
+- MusicGen 不可用：自動 fallback 到 FFmpeg demo
+- fallback 仍可生成測試音樂，但不是 AI 配樂
+
 ## Docker
 ```bash
 docker build -t ai-music-studio-v2 .
@@ -45,14 +73,5 @@ docker run --rm -p 8000:8000 ai-music-studio-v2
 
 Docker 預設是 Lite 模式：FFmpeg + Edge TTS。若要加入 MusicGen / Demucs，建議另外做 GPU 映像或在較大的主機安裝 `requirements-ai.txt`。
 
-## 主要 API
-- `GET /health`
-- `POST /api/lyrics/generate`
-- `POST /api/voice/generate`
-- `POST /api/music/generate`
-- `POST /api/extract`
-- `POST /api/mix`
-- `POST /api/mv/render`
-
 ## 建議部署
-一般小型雲端主機可以跑 Lite 模式；MusicGen / Demucs 屬重型 AI 工作負載，不適合 Cloudflare Worker。前端可以繼續放 GitHub Pages，Python 後端另放可執行 FFmpeg 的服務。
+一般小型雲端主機可以跑 Lite 模式；MusicGen / Demucs 屬重型 AI 工作負載，不適合 Cloudflare Worker。前端可以繼續放 GitHub Pages，Python 後端另放可執行 FFmpeg 與 AI 載入的伺服器。

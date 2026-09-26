@@ -129,13 +129,18 @@ async def home():
 
 @app.get("/health")
 async def health():
+    runtime = music_eng.runtime_status()
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
         "version": "2.0.1",
-        "ffmpeg": shutil.which("ffmpeg") is not None,
+        "ffmpeg": runtime["ffmpeg_available"],
+        "musicgen": runtime["musicgen_available"],
+        "cuda_available": runtime["cuda_available"],
+        "device": runtime["device"],
+        "model_name": runtime["model_name"],
+        "fallback_enabled": runtime["fallback_enabled"],
         "demucs": audio_ext.demucs_available(),
-        "musicgen": music_eng.musicgen_available(),
     }
 
 
@@ -182,6 +187,9 @@ class MusicRequest(BaseModel):
     style: str = "wuxia_epic"
     prompt: str = ""
     duration: int = Field(default=15, ge=5, le=180)
+    model: str = Field(default="", description="Optionally override MusicGen model")
+    device: str = Field(default="", description="Override device: cuda|cpu")
+    use_fallback: bool = True
 
 
 @app.post("/api/music/generate")
@@ -189,18 +197,31 @@ async def api_generate_music(req: MusicRequest):
     filename = unique_name("bgm.wav", ".wav")
     style_info = music_eng.get_style_info(req.style)
     prompt_to_use = req.prompt.strip() or style_info["tags"]
+    selected_model = req.model.strip() or music_eng.model_name
+    selected_device = req.device.strip() or music_eng.device
     result = music_eng.generate_local_bgm(
         prompt=prompt_to_use,
         duration=req.duration,
         output_filename=filename,
+        model_name=selected_model,
+        device=selected_device,
+        allow_fallback=req.use_fallback,
     )
     return {
         "status": "success",
         "audio_url": f"/outputs/{Path(result['path']).name}",
         "engine": result["engine"],
+        "model": result.get("model", selected_model),
+        "device": result.get("device", selected_device),
         "style_info": style_info,
         "note": result.get("note", ""),
+        "fallback_used": result["engine"] == "procedural_fallback",
     }
+
+
+@app.get("/api/music/status")
+async def api_music_status():
+    return music_eng.runtime_status()
 
 
 @app.post("/api/extract")
