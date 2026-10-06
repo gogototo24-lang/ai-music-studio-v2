@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from lyric_generator import LyricGenerator
 from voice_engine import VoiceEngine, CHARACTER_PRESETS, public_voice_presets
+from voice_router import VoiceProviderRouter
 from music_engine import MusicEngine
 from audio_extractor import AudioExtractor
 from mixer import AudioMixer
@@ -32,7 +33,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.1.0")
+app = FastAPI(title="AI Music Studio v2", version="2.2.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -52,6 +53,7 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
 
 lyric_gen = LyricGenerator()
 voice_eng = VoiceEngine(output_dir=str(OUTPUT_DIR))
+voice_router = VoiceProviderRouter(voice_eng, output_dir=str(OUTPUT_DIR))
 music_eng = MusicEngine(output_dir=str(OUTPUT_DIR))
 audio_ext = AudioExtractor(output_dir=str(OUTPUT_DIR))
 audio_mix = AudioMixer(output_dir=str(OUTPUT_DIR))
@@ -134,8 +136,9 @@ async def health():
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
-        "version": "2.0.1",
+        "version": "2.2.0",
         "ffmpeg": runtime["ffmpeg_available"],
+        "voice_providers": voice_router.provider_status(),
         "musicgen": runtime["musicgen_available"],
         "cuda_available": runtime["cuda_available"],
         "device": runtime["device"],
@@ -166,13 +169,30 @@ async def api_generate_lyrics(req: LyricRequest):
 async def api_voice_presets():
     return {
         "presets": public_voice_presets(),
-        "language_note": "目前內建為台灣中文 spoken TTS 聲線；不是原生台語／閩南語歌唱模型。",
+        "providers": voice_router.provider_status(),
+        "language_note": "Edge 為台灣中文 fallback；台語／閩南語正式測試優先 PilotTTS zh-minnan 與 CosyVoice。",
+    }
+
+
+@app.get("/api/voice/providers")
+async def api_voice_providers():
+    return {
+        "providers": voice_router.provider_status(),
+        "recommended": {
+            "zh-TW": "edge",
+            "zh-minnan": "pilottts",
+            "character_clone": "cosyvoice / gpt-sovits",
+        },
     }
 
 
 class VoiceRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     preset: str = "heroine"
+    provider: str = "auto"
+    language: str = "zh-TW"
+    emotion: str = "neutral"
+    reference_id: str = ""
     enable_reverb: bool = True
 
 
@@ -180,21 +200,32 @@ class VoiceRequest(BaseModel):
 async def api_generate_voice(req: VoiceRequest):
     if req.preset not in CHARACTER_PRESETS:
         raise HTTPException(status_code=400, detail=f"未知聲線 preset：{req.preset}")
-    filename = unique_name("voice.mp3", ".mp3")
-    result = await voice_eng.generate_voice(
-        text=req.text,
-        preset_key=req.preset,
-        enable_reverb=req.enable_reverb,
-        filename=filename,
-    )
+    try:
+        result = await voice_router.generate(
+            text=req.text,
+            preset=req.preset,
+            provider=req.provider,
+            language=req.language,
+            emotion=req.emotion,
+            reference_id=req.reference_id,
+            enable_reverb=req.enable_reverb,
+            filename_stem=f"voice_{uuid.uuid4().hex[:10]}",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
     preset = CHARACTER_PRESETS[req.preset]
+    path = Path(result["path"])
     return {
         "status": "success",
-        "audio_url": f"/outputs/{Path(result).name}",
-        "filename": Path(result).name,
+        "audio_url": f"/outputs/{path.name}",
+        "filename": path.name,
         "preset": req.preset,
         "preset_name": preset["name"],
-        "voice": preset["voice"],
+        "provider": result["provider"],
+        "provider_name": result["provider_name"],
+        "language": result["language"],
+        "emotion": result["emotion"],
     }
 
 
