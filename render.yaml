@@ -12,3 +12,12 @@ services:
         value: 120
       - key: CORS_ORIGINS
         value: https://gogototo24-lang.github.io
+
+      - key: VOICE_PRIMARY_PROVIDER
+        value: edge
+      - key: COSYVOICE_API_URL
+        value: ""
+      - key: PILOTTTS_API_URL
+        value: ""
+      - key: GPT_SOVITS_API_URL
+        value: ""
