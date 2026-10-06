@@ -1,8 +1,19 @@
 # AI Music Studio v2
 
-目前後端版本：**2.1.0**
+目前後端版本：**2.2.0**
 
 這個 repository 是《貓掌江湖》與《喵台灣》影音工作流的後端層，負責原創歌詞、角色口白、背景音樂、混音、音訊處理，以及 9:16 / 16:9 MV 合成。
+
+## v2.2 聲線 Provider
+
+- 保留 Edge TTS 作為永遠可用的輕量 fallback
+- 新增 CosyVoice 3 遠端 provider 介面
+- 新增 PilotTTS 遠端 provider 介面，優先測試 `zh-minnan`
+- 新增 GPT-SoVITS 官方 HTTP API 介面，適合固定角色聲紋
+- `GET /api/voice/providers`：查看 provider 是否已配置
+- `POST /api/voice/generate` 新增 `provider`、`language`、`emotion`、`reference_id`
+- 大型模型與主 Render Lite 分離，避免 RAM / GPU 資源衝突
+- 完整部署說明：`docs/VOICE_PROVIDERS.md`
 
 ## v2.1 新增
 
