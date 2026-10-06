@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from lyric_generator import LyricGenerator
-from voice_engine import VoiceEngine
+from voice_engine import VoiceEngine, CHARACTER_PRESETS, public_voice_presets
 from music_engine import MusicEngine
 from audio_extractor import AudioExtractor
 from mixer import AudioMixer
@@ -32,7 +32,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.0.1")
+app = FastAPI(title="AI Music Studio v2", version="2.1.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -114,6 +114,7 @@ def _run_mv_job(job_id: str, kwargs: dict):
                 "height": result.get("height"),
                 "fps": result.get("fps"),
                 "duration": result.get("duration"),
+                "media_count": result.get("media_count"),
                 "subtitles_burned": result.get("subtitles_burned"),
             },
         )
@@ -161,6 +162,14 @@ async def api_generate_lyrics(req: LyricRequest):
     )
 
 
+@app.get("/api/voice/presets")
+async def api_voice_presets():
+    return {
+        "presets": public_voice_presets(),
+        "language_note": "目前內建為台灣中文 spoken TTS 聲線；不是原生台語／閩南語歌唱模型。",
+    }
+
+
 class VoiceRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     preset: str = "heroine"
@@ -169,6 +178,8 @@ class VoiceRequest(BaseModel):
 
 @app.post("/api/voice/generate")
 async def api_generate_voice(req: VoiceRequest):
+    if req.preset not in CHARACTER_PRESETS:
+        raise HTTPException(status_code=400, detail=f"未知聲線 preset：{req.preset}")
     filename = unique_name("voice.mp3", ".mp3")
     result = await voice_eng.generate_voice(
         text=req.text,
@@ -176,10 +187,14 @@ async def api_generate_voice(req: VoiceRequest):
         enable_reverb=req.enable_reverb,
         filename=filename,
     )
+    preset = CHARACTER_PRESETS[req.preset]
     return {
         "status": "success",
         "audio_url": f"/outputs/{Path(result).name}",
         "filename": Path(result).name,
+        "preset": req.preset,
+        "preset_name": preset["name"],
+        "voice": preset["voice"],
     }
 
 
@@ -274,11 +289,14 @@ async def api_render_mv(
     lyrics: str = Form(""),
     aspect: str = Form("9:16"),
     duration: int = Form(30),
+    burn_subtitles: bool = Form(True),
     audio_file: UploadFile = File(...),
     media_files: List[UploadFile] = File(...),
 ):
     if not media_files:
         raise HTTPException(status_code=400, detail="至少需要一張圖片或一段影片")
+    if len(media_files) > 12:
+        raise HTTPException(status_code=400, detail="一次最多 12 個畫面素材")
     audio_path = await save_upload(audio_file)
     media_paths = [await save_upload(f) for f in media_files]
     out_filename = unique_name("music_video.mp4", ".mp4")
@@ -291,6 +309,7 @@ async def api_render_mv(
         "duration": max(5, min(int(duration), 60)),
         "aspect": aspect,
         "output_filename": out_filename,
+        "burn_subtitles": burn_subtitles,
     }
     _set_job(job_id, status="queued")
     threading.Thread(target=_run_mv_job, args=(job_id, kwargs), daemon=True).start()
