@@ -10,9 +10,9 @@
 </head>
 <body>
 <main>
-<small>AI MUSIC STUDIO · v2.0.1</small>
+<small>AI MUSIC STUDIO · v2.1.0</small>
 <h1>貓掌影音音樂工作室</h1>
-<p>原創角色歌詞、女性口白、本機 BGM、音軌分離、Ducking 混音與直式 MV。</p>
+<p>原創角色歌詞、8 種女性角色口白、本機 BGM、音軌分離、Ducking 混音與多素材直式 MV。</p>
 
 <section class="card">
 <h2>① 原創角色歌詞</h2>
@@ -30,8 +30,19 @@
 <section class="card">
 <h2>② 女性角色口白</h2>
 <label>口白文字</label><textarea id="voiceText" placeholder="把登場口白貼在這裡"></textarea>
-<label>聲線</label><select id="voicePreset"><option value="heroine">冷豔女俠</option><option value="overlord">霸氣女王</option><option value="gentle">溫柔女聲</option><option value="youth">青春女聲</option></select>
-<button class="primary" onclick="voice()">生成口白</button>
+<label>聲線</label><select id="voicePreset" onchange="updateVoiceHint()">
+<option value="heroine">冷豔女俠｜月扇影喵</option>
+<option value="overlord">霸氣女王｜白狂天喵／焚天赤焰喵</option>
+<option value="empress">皇者威儀｜白帝喵尊</option>
+<option value="narrator">電影旁白｜詩號／預告</option>
+<option value="gentle">溫柔女聲｜琉璃喵／喵台灣</option>
+<option value="ethereal">空靈女聲｜歲璃喵／星織霜雨</option>
+<option value="youth">青春女聲｜輕快社群</option>
+<option value="battle">武戲喝聲｜招式短句</option>
+</select>
+<p id="voiceHint" class="status">冷靜、俐落、帶距離感。適合月扇影喵一類角色。</p>
+<label><input id="voiceReverb" type="checkbox" checked style="width:auto"> 加入殿堂／電影感殘響</label>
+<button class="primary" onclick="voice()">生成並試聽口白</button>
 <div id="voiceOut"></div>
 </section>
 
@@ -63,14 +74,15 @@
 
 <section class="card">
 <h2>⑥ 自動 MV</h2>
-<p>上傳角色圖／影片片段＋完成音訊，輸出 9:16 或 16:9 MP4。這裡是自動剪輯器，不會憑空生成角色動畫。超過 15 秒會在背景編碼，避免 HTTP 502。</p>
+<p>上傳多張角色圖／多段影片＋完成音訊，系統會依序平均分配秒數、統一尺寸後串成 9:16 或 16:9 MP4。可燒錄歌詞／口白字幕；超過 15 秒會在背景編碼。</p>
 <div class="grid">
 <div><label>比例</label><select id="aspect"><option value="9:16">9:16 Shorts/Reels</option><option value="16:9">16:9 YouTube</option></select></div>
 <div><label>秒數</label><input id="mvDur" type="number" min="5" max="60" value="30"></div>
 </div>
 <label>完成音訊</label><input id="mvAudio" type="file" accept="audio/*">
-<label>角色圖片／影片（可多選）</label><input id="mvMedia" type="file" accept="image/*,video/*" multiple>
-<button class="primary" onclick="mv()">輸出 MV</button>
+<label>角色圖片／影片（可多選，最多 12 個，依選取順序播放）</label><input id="mvMedia" type="file" accept="image/*,video/*" multiple>
+<label><input id="burnSubtitles" type="checkbox" checked style="width:auto"> 將歌名／歌詞燒錄到影片</label>
+<button class="primary" onclick="mv()">輸出完整 MV</button>
 <div id="mvOut"></div>
 </section>
 
@@ -87,7 +99,11 @@ const $ = id => document.getElementById(id);
 const DEFAULT_API_BASE = (window.__API_BASE__ || "").replace(/\/$/, "");
 const API_BASE = DEFAULT_API_BASE;
 const apiPath = (p) => (p.startsWith("http") ? p : `${API_BASE}${p}`);
-const audio = url => `<audio controls src="${url}"></audio><p><a href="${url}" target="_blank">開啟檔案</a></p>`;
+const assetUrl = url => apiPath(url);
+const audio = url => {
+  const u = assetUrl(url);
+  return `<audio controls src="${u}"></audio><p><a href="${u}" target="_blank">開啟檔案</a></p>`;
+};
 
 if (API_BASE) {
   $("apiBaseLabel").textContent = API_BASE;
@@ -137,7 +153,20 @@ async function lyrics(){
   }
 }
 
+const voiceHints = {
+  heroine:"冷靜、俐落、帶距離感。適合月扇影喵、血紋劍喵。",
+  overlord:"低沉、穩重、壓迫感較強。適合白狂天喵、焚天赤焰喵。",
+  empress:"速度較慢、氣場厚重。白帝喵尊首選。",
+  narrator:"敘事清楚、節奏沉穩。適合片頭詩號、世界觀旁白與預告。",
+  gentle:"柔和自然。適合琉璃喵、文戲與喵台灣。",
+  ethereal:"清透、慢速、夢幻。適合歲璃喵與星織霜雨。",
+  youth:"明亮、速度稍快。適合輕快社群短片。",
+  battle:"短句俐落、節奏快速。適合 2–6 秒招式名與武戲喝聲。"
+};
+function updateVoiceHint(){ $("voiceHint").textContent = voiceHints[$("voicePreset").value] || ""; }
+
 async function voice(){
+  if (!$("voiceText").value.trim()) return alert("請先輸入口白文字");
   try {
     const j = await jfetch("/api/voice/generate", {
       method: "POST",
@@ -145,10 +174,10 @@ async function voice(){
       body: JSON.stringify({
         text: $("voiceText").value,
         preset: $("voicePreset").value,
-        enable_reverb: true,
+        enable_reverb: $("voiceReverb").checked,
       })
     });
-    $("voiceOut").innerHTML = audio(j.audio_url);
+    $("voiceOut").innerHTML = `<p><strong>${j.preset_name || ""}</strong></p>` + audio(j.audio_url);
     $("status").textContent = JSON.stringify(j, null, 2);
     $("status").className = "status ok";
   } catch (e) {
@@ -228,11 +257,13 @@ async function mv(){
   fd.append("duration", $("mvDur").value);
   fd.append("audio_file", a);
   m.forEach(x => fd.append("media_files", x));
+  fd.append("burn_subtitles", $("burnSubtitles").checked ? "true" : "false");
   try {
     $("mvOut").innerHTML = '<div class="status">已送出，背景渲染中…請不要關閉頁面</div>';
     const j = await jfetch("/api/mv/render", { method: "POST", body: fd });
     if (j.video_url) {
-      $("mvOut").innerHTML = `<video controls src="${j.video_url}"></video><p><a href="${j.video_url}" target="_blank">開啟 MP4</a></p>`;
+      const u = assetUrl(j.video_url);
+      $("mvOut").innerHTML = `<video controls src="${u}"></video><p><a href="${u}" target="_blank">開啟 MP4</a></p>`;
       return;
     }
     const jobId = j.job_id;
@@ -241,7 +272,10 @@ async function mv(){
       const s = await jfetch(`/api/mv/status/${jobId}`);
       $("mvOut").innerHTML = `<div class="status">狀態：${s.status}（${i * 2} 秒）</div>`;
       if (s.status === "success") {
-        $("mvOut").innerHTML = `<video controls src="${s.video_url}"></video><p><a href="${s.video_url}" target="_blank">開啟 MP4</a></p>`;
+        const u = assetUrl(s.video_url);
+        const sub = s.subtitle_url ? `<p><a href="${assetUrl(s.subtitle_url)}" target="_blank">下載 SRT 字幕</a></p>` : "";
+        const meta = s.meta ? `<p>素材：${s.meta.media_count || m.length} 個｜${s.meta.width || ""}×${s.meta.height || ""}｜字幕燒錄：${s.meta.subtitles_burned ? "是" : "否"}</p>` : "";
+        $("mvOut").innerHTML = `<video controls src="${u}"></video><p><a href="${u}" target="_blank">開啟 MP4</a></p>${sub}${meta}`;
         return;
       }
       if (s.status === "error") throw Error(s.detail || "渲染失敗");
@@ -254,6 +288,7 @@ async function mv(){
   }
 }
 
+updateVoiceHint();
 health();
 </script>
 </body>
