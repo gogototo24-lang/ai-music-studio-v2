@@ -48,6 +48,9 @@ class MusicProviderRouter:
         }.get(provider)
         return (os.getenv(key, "") if key else "").strip().rstrip("/")
 
+    def _token(self) -> str:
+        return os.getenv("MUSIC_SERVICE_TOKEN", "").strip()
+
     def status(self) -> list[dict[str, Any]]:
         primary = os.getenv("MUSIC_PRIMARY_PROVIDER", "musicgen").strip().lower() or "musicgen"
         rows = []
@@ -55,7 +58,7 @@ class MusicProviderRouter:
             configured = (
                 self.musicgen.musicgen_available()
                 if key == "musicgen"
-                else bool(self._url(key))
+                else bool(self._url(key) and self._token())
             )
             rows.append({
                 "key": key,
@@ -106,9 +109,16 @@ class MusicProviderRouter:
             "duration": duration,
             "seed": seed,
         }
+        token = self._token()
+        if not token:
+            raise RuntimeError("MUSIC_SERVICE_TOKEN 尚未設定")
         timeout = httpx.Timeout(600.0, connect=30.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{base}/synthesize", json=payload)
+            response = await client.post(
+                f"{base}/synthesize",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
         if response.status_code >= 400:
             raise RuntimeError(
                 f"{PROVIDERS[provider]['name']} 失敗：HTTP {response.status_code} "
