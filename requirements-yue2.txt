@@ -1,0 +1,5 @@
+# Run only on a GPU song-generation service.
+git+https://github.com/multimodal-art-projection/YuE.git
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
