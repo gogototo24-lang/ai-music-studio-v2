@@ -24,6 +24,7 @@ from lyric_generator import LyricGenerator
 from voice_engine import VoiceEngine, CHARACTER_PRESETS, public_voice_presets
 from voice_router import VoiceProviderRouter
 from music_engine import MusicEngine
+from music_router import MusicProviderRouter
 from audio_extractor import AudioExtractor
 from mixer import AudioMixer
 from video_engine import VideoEngine
@@ -33,7 +34,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.2.0")
+app = FastAPI(title="AI Music Studio v2", version="2.3.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -55,6 +56,7 @@ lyric_gen = LyricGenerator()
 voice_eng = VoiceEngine(output_dir=str(OUTPUT_DIR))
 voice_router = VoiceProviderRouter(voice_eng, output_dir=str(OUTPUT_DIR))
 music_eng = MusicEngine(output_dir=str(OUTPUT_DIR))
+music_router = MusicProviderRouter(music_eng, output_dir=str(OUTPUT_DIR))
 audio_ext = AudioExtractor(output_dir=str(OUTPUT_DIR))
 audio_mix = AudioMixer(output_dir=str(OUTPUT_DIR))
 video_eng = VideoEngine(output_dir=str(OUTPUT_DIR))
@@ -136,9 +138,10 @@ async def health():
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "ffmpeg": runtime["ffmpeg_available"],
         "voice_providers": voice_router.provider_status(),
+        "music_providers": music_router.status(),
         "musicgen": runtime["musicgen_available"],
         "cuda_available": runtime["cuda_available"],
         "device": runtime["device"],
@@ -230,44 +233,62 @@ async def api_generate_voice(req: VoiceRequest):
 
 
 class MusicRequest(BaseModel):
+    provider: str = "auto"
+    title: str = ""
     style: str = "wuxia_epic"
     prompt: str = ""
-    duration: int = Field(default=15, ge=5, le=180)
-    model: str = Field(default="", description="Optionally override MusicGen model")
-    device: str = Field(default="", description="Override device: cuda|cpu")
+    lyrics: str = ""
+    duration: int = Field(default=60, ge=5, le=600)
+    seed: int | None = None
     use_fallback: bool = True
+
+
+@app.get("/api/music/providers")
+async def api_music_providers():
+    return {
+        "providers": music_router.status(),
+        "recommended": {
+            "bgm": "musicgen",
+            "full_song": "yue2",
+            "fast_candidate": "ace-step",
+        },
+    }
 
 
 @app.post("/api/music/generate")
 async def api_generate_music(req: MusicRequest):
-    filename = unique_name("bgm.wav", ".wav")
-    style_info = music_eng.get_style_info(req.style)
-    prompt_to_use = req.prompt.strip() or style_info["tags"]
-    selected_model = req.model.strip() or music_eng.model_name
-    selected_device = req.device.strip() or music_eng.device
-    result = music_eng.generate_local_bgm(
-        prompt=prompt_to_use,
-        duration=req.duration,
-        output_filename=filename,
-        model_name=selected_model,
-        device=selected_device,
-        allow_fallback=req.use_fallback,
-    )
+    try:
+        result = await music_router.generate(
+            provider=req.provider,
+            style=req.style,
+            prompt=req.prompt,
+            lyrics=req.lyrics,
+            duration=req.duration,
+            seed=req.seed,
+            title=req.title,
+            use_fallback=req.use_fallback,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    path = Path(result["path"])
     return {
         "status": "success",
-        "audio_url": f"/outputs/{Path(result['path']).name}",
+        "audio_url": f"/outputs/{path.name}",
         "engine": result["engine"],
-        "model": result.get("model", selected_model),
-        "device": result.get("device", selected_device),
-        "style_info": style_info,
+        "provider_name": result.get("provider_name"),
+        "full_song": result.get("full_song", False),
+        "lyrics_supported": result.get("lyrics_supported", False),
         "note": result.get("note", ""),
-        "fallback_used": result["engine"] == "procedural_fallback",
     }
 
 
 @app.get("/api/music/status")
 async def api_music_status():
-    return music_eng.runtime_status()
+    return {
+        **music_eng.runtime_status(),
+        "providers": music_router.status(),
+    }
 
 
 @app.post("/api/extract")
