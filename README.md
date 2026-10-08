@@ -86,3 +86,15 @@ threads-scheduler：審核／排程／發布
 - Cloudflare
 
 只放 Render Environment Variables、Cloudflare Secrets 或其他伺服器端 Secret Store。
+
+
+## 自家完整歌曲服務安全設定
+
+主 API 與 GPU Music service 必須設定相同的 `MUSIC_SERVICE_TOKEN`。
+這個 Token 只放平台 Secret / Environment，不提交 Git。
+
+第一首驗收 payload：
+`examples/wumei-yue2-song.json`
+
+GPU 部署入口：
+`deploy/yue2/Dockerfile`
