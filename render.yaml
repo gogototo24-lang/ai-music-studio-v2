@@ -28,3 +28,6 @@ services:
         value: ""
       - key: ACESTEP_API_URL
         value: ""
+
+      - key: MUSIC_SERVICE_TOKEN
+        sync: false
