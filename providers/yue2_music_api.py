@@ -11,7 +11,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,7 @@ MODEL = os.getenv("YUE2_MODEL", "m-a-p/YuE2-3B")
 DEVICE = os.getenv("YUE2_DEVICE", "cuda")
 MEMORY_GIB = float(os.getenv("YUE2_MEMORY_GIB", "24"))
 VAE = os.getenv("YUE2_VAE", "") or None
+SERVICE_TOKEN = os.getenv("MUSIC_SERVICE_TOKEN", "").strip()
 
 app = FastAPI(title="CatPaw YuE2 Music API")
 pipe = YuE2Pipeline.from_pretrained(
@@ -51,7 +52,12 @@ def health():
 
 
 @app.post("/synthesize")
-def synthesize(req: SongRequest):
+def synthesize(req: SongRequest, authorization: str | None = Header(default=None)):
+    if not SERVICE_TOKEN:
+        raise HTTPException(503, "MUSIC_SERVICE_TOKEN 尚未設定")
+    expected = f"Bearer {SERVICE_TOKEN}"
+    if authorization != expected:
+        raise HTTPException(401, "Unauthorized")
     if not req.lyrics.strip():
         raise HTTPException(400, "YuE2 完整歌曲模式需要歌詞")
 
