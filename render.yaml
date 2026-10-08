@@ -21,3 +21,10 @@ services:
         value: ""
       - key: GPT_SOVITS_API_URL
         value: ""
+
+      - key: MUSIC_PRIMARY_PROVIDER
+        value: musicgen
+      - key: YUE2_API_URL
+        value: ""
+      - key: ACESTEP_API_URL
+        value: ""
