@@ -1,8 +1,19 @@
 # AI Music Studio v2
 
-目前後端版本：**2.2.0**
+目前後端版本：**2.3.0**
 
 這個 repository 是《貓掌江湖》與《喵台灣》影音工作流的後端層，負責原創歌詞、角色口白、背景音樂、混音、音訊處理，以及 9:16 / 16:9 MV 合成。
+
+## v2.3 自家 Music API
+
+- 不再要求 ElevenLabs 才能生成音樂
+- `MusicProviderRouter`：auto / MusicGen / YuE2 / ACE-Step
+- MusicGen：本地 BGM fallback
+- YuE2：自架完整歌曲、指定歌詞、人聲主力
+- ACE-Step：自架快速歌曲／音樂候選
+- `GET /api/music/providers`：查看音樂 provider 狀態
+- `POST /api/music/generate`：統一歌曲／BGM API
+- 完整說明：`docs/SELF_HOSTED_MUSIC_API.md`
 
 ## v2.2 聲線 Provider
 
