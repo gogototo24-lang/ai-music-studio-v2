@@ -1,0 +1,31 @@
+name: Validate Music API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "music_router.py"
+      - "music_engine.py"
+      - "providers/**"
+      - "requirements-yue2.txt"
+      - "deploy/yue2/**"
+      - ".github/workflows/validate-music-api.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax check
+        run: |
+          python -m py_compile app.py music_router.py music_engine.py providers/yue2_music_api.py providers/ace_step_music_api.py
+      - name: Required files
+        run: |
+          test -f deploy/yue2/Dockerfile
+          test -f requirements-yue2.txt
+          test -f docs/SELF_HOSTED_MUSIC_API.md
