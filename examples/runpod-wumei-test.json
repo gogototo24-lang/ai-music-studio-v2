@@ -1,0 +1,11 @@
+{
+  "input": {
+    "title": "舞魅喵・一舞封塵",
+    "style": "dark cinematic wuxia, female vocal, pipa, guzheng, war drums, mysterious and powerful",
+    "prompt": "clear lead vocal, dramatic build, explosive chorus, no male vocal",
+    "lyrics": "[Verse]\\n月落無聲，紅紗掠過孤城\\n一雙冷眸，照見誰的前生\\n\\n[Chorus]\\n一舞封塵，魅影踏月破長空\\n不問誰王，不問誰雄",
+    "duration": 30,
+    "seed": 42,
+    "output_format": "flac"
+  }
+}
