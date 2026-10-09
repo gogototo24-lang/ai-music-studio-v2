@@ -249,7 +249,7 @@ async def api_music_providers():
         "providers": music_router.status(),
         "recommended": {
             "bgm": "musicgen",
-            "full_song": "yue2",
+            "full_song": "runpod-yue2",
             "fast_candidate": "ace-step",
         },
     }
