@@ -1,0 +1,2 @@
+runpod>=1.8.0
+git+https://github.com/multimodal-art-projection/YuE.git
