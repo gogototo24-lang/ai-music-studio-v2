@@ -12,8 +12,8 @@ from music_engine import MusicEngine
 
 PROVIDERS = {
     "musicgen": {
-        "name": "MusicGen Local",
-        "role": "本機／GPU BGM",
+        "name": "MusicGen / Local BGM",
+        "role": "本機 BGM；MusicGen 不可用時可退回 FFmpeg 測試配樂",
         "full_song": False,
         "lyrics": False,
         "paid": False,
@@ -56,7 +56,7 @@ class MusicProviderRouter:
         rows = []
         for key, meta in PROVIDERS.items():
             configured = (
-                self.musicgen.musicgen_available()
+                (self.musicgen.musicgen_available() or self.musicgen.runtime_status()["ffmpeg_available"])
                 if key == "musicgen"
                 else bool(self._url(key) and self._token())
             )
