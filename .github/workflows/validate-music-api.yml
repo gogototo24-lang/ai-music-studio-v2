@@ -23,9 +23,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Python syntax check
         run: |
-          python -m py_compile app.py music_router.py music_engine.py providers/yue2_music_api.py providers/ace_step_music_api.py
+          python -m py_compile app.py music_router.py music_engine.py providers/yue2_music_api.py providers/ace_step_music_api.py providers/runpod_yue2_handler.py
       - name: Required files
         run: |
           test -f deploy/yue2/Dockerfile
+          test -f deploy/runpod/Dockerfile
+          test -f requirements-runpod-yue2.txt
           test -f requirements-yue2.txt
           test -f docs/SELF_HOSTED_MUSIC_API.md
