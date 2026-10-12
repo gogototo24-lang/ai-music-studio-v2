@@ -289,6 +289,12 @@ class MusicProviderRouter:
         if selected not in PROVIDERS:
             raise RuntimeError(f"未知音樂 provider：{selected}")
 
+        if lyrics.strip() and not PROVIDERS[selected]["lyrics"]:
+            raise RuntimeError(
+                "完整歌曲需要支援歌詞的 YuE2 / ACE-Step provider；"
+                "目前選到 MusicGen，不能以 BGM 或測試配樂代替人聲歌曲。"
+            )
+
         if selected == "runpod-yue2":
             return await self._runpod_yue2(
                 style=style,
@@ -329,3 +335,4 @@ class MusicProviderRouter:
             seed=seed,
             title=title,
         )
+

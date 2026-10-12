@@ -89,7 +89,7 @@
 <p>上傳多張角色圖／多段影片＋完成音訊，系統會依序平均分配秒數、統一尺寸後串成 9:16 或 16:9 MP4。可燒錄歌詞／口白字幕；超過 15 秒會在背景編碼。</p>
 <div class="grid">
 <div><label>比例</label><select id="aspect"><option value="9:16">9:16 Shorts/Reels</option><option value="16:9">16:9 YouTube</option></select></div>
-<div><label>秒數</label><input id="mvDur" type="number" min="5" max="60" value="30"></div>
+<div><label>秒數（5–120 秒，720p／24fps）</label><input id="mvDur" type="number" min="5" max="120" value="30"></div>
 </div>
 <label>完成音訊</label><input id="mvAudio" type="file" accept="audio/*">
 <label>角色圖片／影片（可多選，最多 12 個，依選取順序播放）</label><input id="mvMedia" type="file" accept="image/*,video/*" multiple>
@@ -309,3 +309,4 @@ health();
 </script>
 </body>
 </html>
+
