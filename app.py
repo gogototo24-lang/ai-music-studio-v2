@@ -27,7 +27,7 @@ from music_engine import MusicEngine
 from music_router import MusicProviderRouter
 from audio_extractor import AudioExtractor
 from mixer import AudioMixer
-from video_engine import VideoEngine
+from video_engine import VideoEngine, MAX_DURATION, MAX_MEDIA
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
@@ -347,8 +347,12 @@ async def api_render_mv(
 ):
     if not media_files:
         raise HTTPException(status_code=400, detail="至少需要一張圖片或一段影片")
-    if len(media_files) > 12:
-        raise HTTPException(status_code=400, detail="一次最多 12 個畫面素材")
+    if len(media_files) > MAX_MEDIA:
+        raise HTTPException(status_code=400, detail=f"一次最多 {MAX_MEDIA} 個畫面素材")
+    if not 5 <= duration <= MAX_DURATION:
+        raise HTTPException(status_code=422, detail=f"MV 長度必須介於 5 與 {MAX_DURATION} 秒；不會自動截短")
+    if aspect not in {"9:16", "16:9"}:
+        raise HTTPException(status_code=422, detail="MV 比例只支援 9:16 或 16:9")
     audio_path = await save_upload(audio_file)
     media_paths = [await save_upload(f) for f in media_files]
     out_filename = unique_name("music_video.mp4", ".mp4")
@@ -358,7 +362,7 @@ async def api_render_mv(
         "audio_path": str(audio_path),
         "title": title,
         "lyrics": lyrics,
-        "duration": max(5, min(int(duration), 60)),
+        "duration": duration,
         "aspect": aspect,
         "output_filename": out_filename,
         "burn_subtitles": burn_subtitles,
@@ -392,3 +396,4 @@ async def cleanup_outputs():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=False)
+
