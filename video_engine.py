@@ -22,7 +22,7 @@ IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv"}
 
 FFMPEG_TIMEOUT = int(os.getenv("MV_FFMPEG_TIMEOUT", "240"))
-MAX_DURATION = int(os.getenv("MV_MAX_DURATION", "60"))
+MAX_DURATION = int(os.getenv("MV_MAX_DURATION", "120"))
 MAX_MEDIA = int(os.getenv("MV_MAX_MEDIA", "12"))
 PRESET = os.getenv("MV_X264_PRESET", "ultrafast")
 CRF = os.getenv("MV_X264_CRF", "30")
@@ -222,7 +222,11 @@ class VideoEngine:
         if not audio_path or not Path(audio_path).exists():
             raise RuntimeError("找不到完成音訊")
 
-        duration = max(5, min(int(duration), MAX_DURATION))
+        duration = int(duration)
+        if not 5 <= duration <= MAX_DURATION:
+            raise RuntimeError(f"MV 長度必須介於 5 與 {MAX_DURATION} 秒；不會自動截短")
+        if aspect not in {"9:16", "16:9"}:
+            raise RuntimeError("MV 比例只支援 9:16 或 16:9")
         width, height = self._size(aspect, duration)
         fps = self._fps(duration)
         job = uuid.uuid4().hex[:8]
@@ -267,3 +271,4 @@ class VideoEngine:
             "duration": duration,
             "media_count": len(media_paths),
         }
+
