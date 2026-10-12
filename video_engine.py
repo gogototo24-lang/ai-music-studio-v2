@@ -39,12 +39,10 @@ class VideoEngine:
             raise RuntimeError("找不到 FFmpeg。MV 生成功能需要 FFmpeg。")
 
     def _size(self, aspect, duration):
-        if duration <= 15:
-            return (1280, 720) if aspect == "16:9" else (720, 1280)
-        return (960, 540) if aspect == "16:9" else (540, 960)
+        return (1280, 720) if aspect == "16:9" else (720, 1280)
 
     def _fps(self, duration):
-        return "24" if duration <= 15 else "18"
+        return "24"
 
     def _run(self, cmd, timeout=FFMPEG_TIMEOUT):
         return subprocess.run(
