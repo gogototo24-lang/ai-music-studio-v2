@@ -38,6 +38,7 @@ class PipelineRegressionTests(unittest.TestCase):
                 mux.side_effect = lambda video, audio, final, duration, srt, burn: (final.touch() or False)
                 result = engine.render_mv(['one.png', 'two.png'], str(audio), duration=67)
             self.assertEqual(result['duration'], 67)
+            self.assertEqual((result['width'], result['height'], result['fps']), (720, 1280, '24'))
             self.assertEqual(mux.call_args.args[3], 67)
 
     def test_over_limit_is_rejected(self):
