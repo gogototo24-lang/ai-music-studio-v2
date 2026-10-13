@@ -7,6 +7,7 @@ vocal separation, ducking mix, and 9:16 / 16:9 MV rendering.
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import threading
@@ -28,13 +29,14 @@ from music_router import MusicProviderRouter
 from audio_extractor import AudioExtractor
 from mixer import AudioMixer
 from video_engine import VideoEngine, MAX_DURATION, MAX_MEDIA
+from editor_engine import EditorEngine
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.3.0")
+app = FastAPI(title="AI Music Studio v2", version="2.4.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -60,6 +62,7 @@ music_router = MusicProviderRouter(music_eng, output_dir=str(OUTPUT_DIR))
 audio_ext = AudioExtractor(output_dir=str(OUTPUT_DIR))
 audio_mix = AudioMixer(output_dir=str(OUTPUT_DIR))
 video_eng = VideoEngine(output_dir=str(OUTPUT_DIR))
+editor_eng = EditorEngine(output_dir=str(OUTPUT_DIR))
 
 SAFE_MEDIA = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "120"))
@@ -102,6 +105,21 @@ def _set_job(job_id: str, **fields):
     with JOBS_LOCK:
         JOBS.setdefault(job_id, {})
         JOBS[job_id].update(fields)
+
+
+def _run_editor_job(job_id: str, kwargs: dict):
+    _set_job(job_id, status="running", job_type="editor")
+    try:
+        result = editor_eng.render(**kwargs)
+        _set_job(
+            job_id,
+            status="success",
+            job_type="editor",
+            video_url=f"/outputs/{Path(result['path']).name}",
+            meta={k: v for k, v in result.items() if k != "path"},
+        )
+    except Exception as e:
+        _set_job(job_id, status="error", job_type="editor", detail=str(e))
 
 
 def _run_mv_job(job_id: str, kwargs: dict):
@@ -289,6 +307,67 @@ async def api_music_status():
         **music_eng.runtime_status(),
         "providers": music_router.status(),
     }
+
+
+@app.get("/api/editor/status")
+async def api_editor_status():
+    return {
+        "ok": True,
+        "name": "CatPaw AI 剪輯師",
+        "version": "0.1",
+        "engine": "ffmpeg",
+        "max_clips": 20,
+        "aspects": ["9:16", "16:9"],
+        "qualities": ["720p", "1080p"],
+        "transitions": ["cut", "fade"],
+        "gpu_required": False,
+    }
+
+
+@app.post("/api/editor/render")
+async def api_editor_render(
+    aspect: str = Form("9:16"),
+    quality: str = Form("720p"),
+    transition: str = Form("cut"),
+    trim_json: str = Form("[]"),
+    clips: List[UploadFile] = File(...),
+):
+    if not clips:
+        raise HTTPException(status_code=400, detail="至少需要一支影片")
+    if len(clips) > 20:
+        raise HTTPException(status_code=400, detail="v0.1 一次最多 20 支影片")
+    try:
+        trims = json.loads(trim_json or "[]")
+    except Exception:
+        raise HTTPException(status_code=422, detail="trim_json 必須是合法 JSON")
+    if trims and not isinstance(trims, list):
+        raise HTTPException(status_code=422, detail="trim_json 必須是陣列")
+    clip_paths = [await save_upload(f) for f in clips]
+    if any(p.suffix.lower() not in {".mp4", ".mov", ".webm"} for p in clip_paths):
+        raise HTTPException(status_code=422, detail="CatPaw Editor v0.1 目前只接受影片素材")
+    out_filename = unique_name("catpaw_edit.mp4", ".mp4")
+    job_id = uuid.uuid4().hex[:12]
+    kwargs = {
+        "clip_paths": [str(p) for p in clip_paths],
+        "trim_specs": trims or [{} for _ in clip_paths],
+        "aspect": aspect,
+        "quality": quality,
+        "transition": transition,
+        "output_filename": out_filename,
+        "fps": 24,
+    }
+    _set_job(job_id, status="queued", job_type="editor")
+    threading.Thread(target=_run_editor_job, args=(job_id, kwargs), daemon=True).start()
+    return {"status": "queued", "job_id": job_id, "job_type": "editor"}
+
+
+@app.get("/api/editor/jobs/{job_id}")
+async def api_editor_job(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job or job.get("job_type") != "editor":
+        raise HTTPException(status_code=404, detail="找不到這個剪輯任務")
+    return {"job_id": job_id, **job}
 
 
 @app.post("/api/extract")
