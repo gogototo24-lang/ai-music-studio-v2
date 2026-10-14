@@ -36,7 +36,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.4.0")
+app = FastAPI(title="AI Music Studio v2", version="2.5.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -156,7 +156,7 @@ async def health():
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
-        "version": "2.3.0",
+        "version": "2.5.0",
         "ffmpeg": runtime["ffmpeg_available"],
         "voice_providers": voice_router.provider_status(),
         "music_providers": music_router.status(),
@@ -314,12 +314,16 @@ async def api_editor_status():
     return {
         "ok": True,
         "name": "CatPaw AI 剪輯師",
-        "version": "0.1",
+        "version": "0.2",
         "engine": "ffmpeg",
-        "max_clips": 20,
+        "max_clips": 30,
         "aspects": ["9:16", "16:9"],
         "qualities": ["720p", "1080p"],
         "transitions": ["cut", "fade"],
+        "target_presets_seconds": [30, 60, 275],
+        "music_track": True,
+        "full_mv_reuse": True,
+        "title_cards": True,
         "gpu_required": False,
     }
 
@@ -330,12 +334,18 @@ async def api_editor_render(
     quality: str = Form("720p"),
     transition: str = Form("cut"),
     trim_json: str = Form("[]"),
+    target_seconds: float = Form(0),
+    original_audio_volume: float = Form(0.18),
+    title_text: str = Form(""),
+    ending_text: str = Form(""),
+    reuse_mode: str = Form("cycle"),
+    music_file: UploadFile | None = File(None),
     clips: List[UploadFile] = File(...),
 ):
     if not clips:
         raise HTTPException(status_code=400, detail="至少需要一支影片")
-    if len(clips) > 20:
-        raise HTTPException(status_code=400, detail="v0.1 一次最多 20 支影片")
+    if len(clips) > 30:
+        raise HTTPException(status_code=400, detail="v0.2 一次最多 30 支影片")
     try:
         trims = json.loads(trim_json or "[]")
     except Exception:
@@ -344,9 +354,15 @@ async def api_editor_render(
         raise HTTPException(status_code=422, detail="trim_json 必須是陣列")
     clip_paths = [await save_upload(f) for f in clips]
     if any(p.suffix.lower() not in {".mp4", ".mov", ".webm"} for p in clip_paths):
-        raise HTTPException(status_code=422, detail="CatPaw Editor v0.1 目前只接受影片素材")
+        raise HTTPException(status_code=422, detail="CatPaw Editor v0.2 目前只接受影片素材")
     out_filename = unique_name("catpaw_edit.mp4", ".mp4")
     job_id = uuid.uuid4().hex[:12]
+    music_path = None
+    if music_file and music_file.filename:
+        music_path = await save_upload(music_file)
+        if music_path.suffix.lower() not in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}:
+            raise HTTPException(status_code=422, detail="music_file 必須是音訊檔")
+
     kwargs = {
         "clip_paths": [str(p) for p in clip_paths],
         "trim_specs": trims or [{} for _ in clip_paths],
@@ -355,6 +371,12 @@ async def api_editor_render(
         "transition": transition,
         "output_filename": out_filename,
         "fps": 24,
+        "target_seconds": target_seconds if target_seconds > 0 else None,
+        "music_path": str(music_path) if music_path else None,
+        "original_audio_volume": original_audio_volume,
+        "title_text": title_text,
+        "ending_text": ending_text,
+        "reuse_mode": reuse_mode,
     }
     _set_job(job_id, status="queued", job_type="editor")
     threading.Thread(target=_run_editor_job, args=(job_id, kwargs), daemon=True).start()
