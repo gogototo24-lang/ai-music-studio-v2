@@ -32,6 +32,49 @@ class EditorEngine:
             raise RuntimeError(f"讀不到媒體長度：{Path(path).name}")
         return {"duration": duration, "has_audio": has_audio}
 
+    def probe_media(self, path: str) -> dict:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries",
+            "format=duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels",
+            "-of", "json", str(path),
+        ]
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode != 0:
+            raise RuntimeError(f"ffprobe 失敗：{Path(path).name}")
+        data = json.loads(p.stdout or "{}")
+        fmt = data.get("format") or {}
+        streams = data.get("streams") or []
+        video = next((s for s in streams if s.get("codec_type") == "video"), None)
+        audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+
+        def fps_value(raw):
+            if not raw or raw in {"0/0", "N/A"}:
+                return 0.0
+            try:
+                a, b = str(raw).split("/", 1)
+                return round(float(a) / float(b), 3) if float(b) else 0.0
+            except Exception:
+                try:
+                    return round(float(raw), 3)
+                except Exception:
+                    return 0.0
+
+        return {
+            "duration": round(float(fmt.get("duration") or 0), 3),
+            "size_bytes": int(fmt.get("size") or 0),
+            "bit_rate": int(fmt.get("bit_rate") or 0),
+            "has_video": bool(video),
+            "has_audio": bool(audio),
+            "video_codec": video.get("codec_name") if video else None,
+            "width": int(video.get("width") or 0) if video else 0,
+            "height": int(video.get("height") or 0) if video else 0,
+            "fps": fps_value((video or {}).get("avg_frame_rate") or (video or {}).get("r_frame_rate")),
+            "audio_codec": audio.get("codec_name") if audio else None,
+            "sample_rate": int(audio.get("sample_rate") or 0) if audio and str(audio.get("sample_rate") or "").isdigit() else 0,
+            "channels": int(audio.get("channels") or 0) if audio else 0,
+        }
+
     @staticmethod
     def _size(aspect: str, quality: str) -> tuple[int, int]:
         if aspect == "16:9":
