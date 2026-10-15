@@ -71,6 +71,14 @@ CHARACTER_PRESETS = {
         "description": "明亮、速度稍快，適合輕快社群短片與年輕角色。",
         "recommended_for": ["喵台灣", "輕快角色"],
     },
+    "liuxia": {
+        "name": "琉霞喵",
+        "voice": "zh-TW-HsiaoChenNeural",
+        "pitch": "-1Hz",
+        "rate": "-6%",
+        "description": "清冷略沙、前段克制，句尾孤傲，高潮提升力度但不尖銳。",
+        "recommended_for": ["琉霞喵"],
+    },
     "battle": {
         "name": "武戲喝聲",
         "voice": "zh-TW-HsiaoChenNeural",
