@@ -1,0 +1,52 @@
+name: Voice Smoke Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/voice-smoke-test.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Warm service
+        run: |
+          curl -fsS --retry 6 --retry-delay 10 --max-time 120 \
+            https://ai-music-studio-v2.onrender.com/health | tee health.json
+
+      - name: Test RunningHub voice through v2
+        run: |
+          set -o pipefail
+          HTTP_CODE=$(curl -sS --max-time 240 \
+            -o voice_response.json \
+            -w "%{http_code}" \
+            -X POST "https://ai-music-studio-v2.onrender.com/api/voice/generate" \
+            -H "Content-Type: application/json" \
+            --data '{"text":"月影起，江湖醒。","preset":"heroine","provider":"runninghub","language":"zh-TW","emotion":"neutral","reference_id":"","enable_reverb":false}')
+          echo "HTTP_CODE=$HTTP_CODE"
+          cat voice_response.json
+          echo
+          test "$HTTP_CODE" = "200"
+
+      - name: Verify returned audio URL
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          with open("voice_response.json", encoding="utf-8") as f:
+              data=json.load(f)
+          url=data.get("audio_url","")
+          if not url:
+              raise SystemExit("audio_url missing")
+          if url.startswith("/"):
+              url="https://ai-music-studio-v2.onrender.com"+url
+          print("AUDIO_URL="+url)
+          req=urllib.request.Request(url, method="GET")
+          with urllib.request.urlopen(req, timeout=120) as r:
+              chunk=r.read(256)
+              print("AUDIO_HTTP="+str(r.status))
+              print("AUDIO_BYTES_SAMPLE="+str(len(chunk)))
+              if r.status != 200 or len(chunk) < 128:
+                  raise SystemExit("audio verification failed")
+          PY
