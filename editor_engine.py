@@ -170,8 +170,8 @@ class EditorEngine:
     ) -> dict:
         if not clip_paths:
             raise RuntimeError("至少需要一支影片")
-        if len(clip_paths) > 30:
-            raise RuntimeError("v0.2 一次最多 30 支影片")
+        if len(clip_paths) > 160:
+            raise RuntimeError("v0.6 單次剪輯時間線最多 160 個片段")
         if aspect not in {"9:16", "16:9"}:
             raise RuntimeError("只支援 9:16 或 16:9")
         if quality not in {"720p", "1080p"}:
