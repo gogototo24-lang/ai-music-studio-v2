@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-RunningHub voice workflow adapter.
+RunningHub VoxCPM2 voice workflow adapter.
 
-Uses a hosted RunningHub ComfyUI workflow as a GPU voice provider.
-The workflow is expected to contain a text input node and a SaveAudio/SaveAudioMP3 output.
-Reference voice/audio can remain embedded in the workflow itself.
+Expected workflow contract:
+- node 10 / field prompt: script text
+- node 11 / field prompt: speaker description
+- node 7: SaveAudio output
 
 Environment:
 RUNNINGHUB_API_KEY
 RUNNINGHUB_VOICE_WORKFLOW_ID
-RUNNINGHUB_TEXT_NODE_ID
-RUNNINGHUB_TEXT_FIELD=prompt\nRUNNINGHUB_SPEAKER_NODE_ID=11\nRUNNINGHUB_SPEAKER_FIELD=prompt
+RUNNINGHUB_TEXT_NODE_ID=10
+RUNNINGHUB_TEXT_FIELD=prompt
+RUNNINGHUB_SPEAKER_NODE_ID=11
+RUNNINGHUB_SPEAKER_FIELD=prompt
 RUNNINGHUB_POLL_SECONDS=5
 RUNNINGHUB_MAX_WAIT_SECONDS=180
 RUNNINGHUB_BASE_URL=https://www.runninghub.ai
@@ -40,8 +43,10 @@ class RunningHubVoiceAdapter:
     def _config(self) -> dict[str, Any]:
         api_key = os.getenv("RUNNINGHUB_API_KEY", "").strip()
         workflow_id = os.getenv("RUNNINGHUB_VOICE_WORKFLOW_ID", "").strip()
-        text_node_id = os.getenv("RUNNINGHUB_TEXT_NODE_ID", "").strip()
-        text_field = os.getenv("RUNNINGHUB_TEXT_FIELD", "prompt").strip() or "prompt"\n        speaker_node_id = os.getenv("RUNNINGHUB_SPEAKER_NODE_ID", "").strip()\n        speaker_field = os.getenv("RUNNINGHUB_SPEAKER_FIELD", "prompt").strip() or "prompt"
+        text_node_id = os.getenv("RUNNINGHUB_TEXT_NODE_ID", "10").strip() or "10"
+        text_field = os.getenv("RUNNINGHUB_TEXT_FIELD", "prompt").strip() or "prompt"
+        speaker_node_id = os.getenv("RUNNINGHUB_SPEAKER_NODE_ID", "11").strip() or "11"
+        speaker_field = os.getenv("RUNNINGHUB_SPEAKER_FIELD", "prompt").strip() or "prompt"
         base_url = os.getenv("RUNNINGHUB_BASE_URL", "https://www.runninghub.ai").rstrip("/")
         poll_seconds = float(os.getenv("RUNNINGHUB_POLL_SECONDS", "5"))
         max_wait = float(os.getenv("RUNNINGHUB_MAX_WAIT_SECONDS", "180"))
@@ -54,34 +59,58 @@ class RunningHubVoiceAdapter:
             "api_key": api_key,
             "workflow_id": workflow_id,
             "text_node_id": text_node_id,
-            "text_field": text_field,\n            "speaker_node_id": speaker_node_id,\n            "speaker_field": speaker_field,
+            "text_field": text_field,
+            "speaker_node_id": speaker_node_id,
+            "speaker_field": speaker_field,
             "base_url": base_url,
             "poll_seconds": poll_seconds,
             "max_wait": max_wait,
         }
+
+    def _speaker_prompt(self, preset: str, language: str, emotion: str) -> str:
+        profiles = {
+            "heroine": "25歲女性，聲線清亮有力量，語速中等，咬字清楚，帶電影級武俠女主角氣勢",
+            "white-emperor": "成熟女性，聲線低沉威儀、冷靜克制，語速偏慢，句尾有壓迫感",
+            "moonfan": "成熟女性，聲線清冷內斂，語速偏慢，情緒克制",
+            "suili": "年輕女性，聲線空靈柔和，語速偏慢，帶神秘感",
+            "liuli": "年輕女性，聲線溫柔明亮，語速自然，親和但不稚嫩",
+        }
+        desc = profiles.get(preset, profiles["heroine"])
+        return f"[spk1]{desc}；語言={language}；情緒={emotion}"
 
     async def generate(
         self,
         *,
         text: str,
         filename_stem: str,
+        preset: str = "heroine",
+        language: str = "zh-TW",
+        emotion: str = "neutral",
     ) -> str:
         cfg = self._config()
         headers = {
             "Authorization": f"Bearer {cfg['api_key']}",
             "Content-Type": "application/json",
-            "Host": "www.runninghub.ai",
         }
+
+        script_prompt = text if str(text).lstrip().startswith("[spk") else f"[spk1]{text}"
+        node_info = [
+            {
+                "nodeId": cfg["text_node_id"],
+                "fieldName": cfg["text_field"],
+                "fieldValue": script_prompt,
+            },
+            {
+                "nodeId": cfg["speaker_node_id"],
+                "fieldName": cfg["speaker_field"],
+                "fieldValue": self._speaker_prompt(preset, language, emotion),
+            },
+        ]
+
         payload = {
             "apiKey": cfg["api_key"],
             "workflowId": cfg["workflow_id"],
-            "nodeInfoList": [
-                {
-                    "nodeId": cfg["text_node_id"],
-                    "fieldName": cfg["text_field"],
-                    "fieldValue": text,
-                }
-            ],
+            "nodeInfoList": node_info,
             "addMetadata": True,
         }
 
@@ -98,6 +127,7 @@ class RunningHubVoiceAdapter:
                 raise RuntimeError(
                     f"RunningHub 提交失敗：{body.get('code')} {body.get('msg')}"
                 )
+
             data = body.get("data") or {}
             task_id = data.get("taskId")
             if not task_id:
@@ -122,9 +152,12 @@ class RunningHubVoiceAdapter:
                         if file_type in {"mp3", "wav", "m4a", "aac", "ogg", "flac"}:
                             audio = item
                             break
-                        if file_url.lower().endswith((".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac")):
+                        if file_url.lower().endswith(
+                            (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac")
+                        ):
                             audio = item
                             break
+
                     if audio is None:
                         raise RuntimeError(
                             "RunningHub 工作流已完成，但沒有找到音訊輸出；"
@@ -137,9 +170,11 @@ class RunningHubVoiceAdapter:
                     suffix = Path(str(file_url).split("?")[0]).suffix.lower() or ".wav"
                     target = self.output_dir / f"{filename_stem}{suffix}"
                     target.write_bytes(response.content)
+
                     if target.stat().st_size < 128:
                         target.unlink(missing_ok=True)
                         raise RuntimeError("RunningHub 回傳音訊檔過小或為空")
+
                     return str(target)
 
                 await asyncio.sleep(cfg["poll_seconds"])
