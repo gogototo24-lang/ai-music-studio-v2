@@ -89,7 +89,6 @@ class RunningHubVoiceAdapter:
     ) -> str:
         cfg = self._config()
         headers = {
-            "Authorization": f"Bearer {cfg['api_key']}",
             "Content-Type": "application/json",
         }
 
