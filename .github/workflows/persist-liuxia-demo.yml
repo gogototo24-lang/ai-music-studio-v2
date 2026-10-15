@@ -12,15 +12,80 @@ permissions:
 jobs:
   persist:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Liuxia demo
+      - name: Wait for Render service
+        run: |
+          for i in $(seq 1 36); do
+            BODY=$(curl -fsS --max-time 60 https://ai-music-studio-v2.onrender.com/api/voice/presets || true)
+            echo "$BODY" | grep -q '"key":"liuxia"' && exit 0
+            sleep 10
+          done
+          exit 1
+
+      - name: Generate Liuxia voice
+        run: |
+          cat > voice.json <<'JSON'
+          {
+            "text": "我是琉霞，一念照江湖。縱然千山萬劫，不肯退一步。霞光若散，就化滿天星雨。此生不問歸途，只問誰敢擋我路。我是琉霞，孤影踏長霧。昨日傷痕今日，都化作劍舞。若這天地容不下一身傲骨，那便讓我的光，照亮整座江湖。",
+            "preset": "liuxia",
+            "provider": "runninghub",
+            "language": "zh-TW",
+            "emotion": "heroic",
+            "reference_id": "",
+            "enable_reverb": true
+          }
+          JSON
+          CODE=$(curl -sS --max-time 300 -o voice_response.json -w "%{http_code}"             -X POST https://ai-music-studio-v2.onrender.com/api/voice/generate             -H 'Content-Type: application/json'             --data @voice.json)
+          echo "VOICE_HTTP=$CODE"
+          cat voice_response.json
+          test "$CODE" = "200"
+
+      - name: Generate BGM
+        run: |
+          CODE=$(curl -sS --max-time 180 -o music_response.json -w "%{http_code}"             -X POST https://ai-music-studio-v2.onrender.com/api/music/generate             -H 'Content-Type: application/json'             --data '{"provider":"musicgen","title":"琉霞一念 Demo","style":"tragic_ballad","prompt":"cinematic oriental wuxia ambient bed","lyrics":"","duration":45,"use_fallback":true}')
+          echo "MUSIC_HTTP=$CODE"
+          cat music_response.json
+          test "$CODE" = "200"
+
+      - name: Download generated voice and BGM
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          base='https://ai-music-studio-v2.onrender.com'
+          for src,out in [('voice_response.json','voice.flac'),('music_response.json','bgm.wav')]:
+              d=json.load(open(src, encoding='utf-8'))
+              u=d['audio_url']
+              if u.startswith('/'):
+                  u=base+u
+              urllib.request.urlretrieve(u,out)
+          PY
+
+      - name: Mix final demo
+        run: |
+          CODE=$(curl -sS --max-time 180 -o mix_response.json -w "%{http_code}"             -X POST https://ai-music-studio-v2.onrender.com/api/mix             -F "voice_file=@voice.flac"             -F "bgm_file=@bgm.wav"             -F "voice_delay_ms=250"             -F "bgm_volume=0.26"             -F "ducking=true")
+          echo "MIX_HTTP=$CODE"
+          cat mix_response.json
+          test "$CODE" = "200"
+
+      - name: Download final MP3 to repository
         run: |
           mkdir -p public/audio
-          curl -fL --retry 5 --retry-delay 5 --max-time 120             -o public/audio/liuxia-yinian-demo.mp3             https://ai-music-studio-v2.onrender.com/outputs/mix_2f994e1e53.mp3
-          test -s public/audio/liuxia-yinian-demo.mp3
-          ls -lh public/audio/liuxia-yinian-demo.mp3
+          python - <<'PY'
+          import json, urllib.request, pathlib
+          d=json.load(open('mix_response.json', encoding='utf-8'))
+          u=d['audio_url']
+          if u.startswith('/'):
+              u='https://ai-music-studio-v2.onrender.com'+u
+          out='public/audio/liuxia-yinian-demo.mp3'
+          urllib.request.urlretrieve(u,out)
+          size=pathlib.Path(out).stat().st_size
+          print('FINAL_BYTES='+str(size))
+          if size < 1024:
+              raise SystemExit('final mp3 too small')
+          PY
 
       - name: Commit stable audio file
         run: |
