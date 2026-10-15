@@ -30,6 +30,7 @@ from audio_extractor import AudioExtractor
 from mixer import AudioMixer
 from video_engine import VideoEngine, MAX_DURATION, MAX_MEDIA
 from editor_engine import EditorEngine
+from music_analyzer import MusicAnalyzer
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
@@ -63,6 +64,7 @@ audio_ext = AudioExtractor(output_dir=str(OUTPUT_DIR))
 audio_mix = AudioMixer(output_dir=str(OUTPUT_DIR))
 video_eng = VideoEngine(output_dir=str(OUTPUT_DIR))
 editor_eng = EditorEngine(output_dir=str(OUTPUT_DIR))
+music_analyzer = MusicAnalyzer(output_dir=str(OUTPUT_DIR))
 
 SAFE_MEDIA = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "120"))
@@ -316,8 +318,12 @@ async def api_editor_status():
     return {
         "ok": True,
         "name": "CatPaw AI 剪輯師",
-        "version": "0.2",
+        "version": "0.3",
         "engine": "ffmpeg",
+        "audio_extract": True,
+        "music_analysis": True,
+        "bpm_estimate": True,
+        "chorus_candidates": True,
         "max_clips": 30,
         "aspects": ["9:16", "16:9"],
         "qualities": ["720p", "1080p"],
@@ -329,6 +335,41 @@ async def api_editor_status():
         "gpu_required": False,
     }
 
+
+
+@app.post("/api/editor/extract-audio")
+async def api_editor_extract_audio(
+    file: UploadFile = File(...),
+    bitrate: str = Form("320k"),
+):
+    source = await save_upload(file)
+    if source.suffix.lower() not in {".mp4", ".mov", ".webm", ".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"}:
+        raise HTTPException(status_code=422, detail="不支援的音訊／影片格式")
+    if bitrate not in {"192k", "256k", "320k"}:
+        bitrate = "320k"
+    out_filename = unique_name("catpaw_audio.mp3", ".mp3")
+    try:
+        result = music_analyzer.extract_audio(str(source), out_filename, bitrate=bitrate)
+        return {
+            "status": "success",
+            "audio_url": f"/outputs/{Path(result['path']).name}",
+            "duration": result["duration"],
+            "bitrate": result["bitrate"],
+            "format": result["format"],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/editor/analyze-music")
+async def api_editor_analyze_music(file: UploadFile = File(...)):
+    source = await save_upload(file)
+    if source.suffix.lower() not in {".mp4", ".mov", ".webm", ".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"}:
+        raise HTTPException(status_code=422, detail="不支援的音訊／影片格式")
+    try:
+        return {"status": "success", **music_analyzer.analyze(str(source))}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/editor/render")
 async def api_editor_render(
