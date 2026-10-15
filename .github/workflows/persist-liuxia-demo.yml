@@ -1,0 +1,31 @@
+name: Persist Liuxia Demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/persist-liuxia-demo.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  persist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Liuxia demo
+        run: |
+          mkdir -p public/audio
+          curl -fL --retry 5 --retry-delay 5 --max-time 120             -o public/audio/liuxia-yinian-demo.mp3             https://ai-music-studio-v2.onrender.com/outputs/mix_2f994e1e53.mp3
+          test -s public/audio/liuxia-yinian-demo.mp3
+          ls -lh public/audio/liuxia-yinian-demo.mp3
+
+      - name: Commit stable audio file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/audio/liuxia-yinian-demo.mp3
+          git commit -m "Persist Liuxia Yinian demo audio" || exit 0
+          git push
