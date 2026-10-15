@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from voice_engine import VoiceEngine, CHARACTER_PRESETS
+from providers.runninghub_voice_adapter import RunningHubVoiceAdapter
 
 
 PROVIDER_META = {
@@ -44,6 +45,12 @@ PROVIDER_META = {
         "languages": ["zh", "yue", "en", "ja", "ko"],
         "voice_clone": True,
     },
+    "runninghub": {
+        "name": "RunningHub GPU Voice",
+        "role": "RunningHub Qwen3 TTS／聲線工作流主力",
+        "languages": ["zh-TW", "zh", "zh-minnan", "multilingual"],
+        "voice_clone": True,
+    },
 }
 
 
@@ -52,6 +59,7 @@ class VoiceProviderRouter:
         self.edge_engine = edge_engine
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.runninghub = RunningHubVoiceAdapter(output_dir=str(self.output_dir))
 
     def _url(self, provider: str) -> str:
         env_map = {
@@ -63,6 +71,8 @@ class VoiceProviderRouter:
         return (os.getenv(key, "") if key else "").strip().rstrip("/")
 
     def _configured(self, provider: str) -> bool:
+        if provider == "runninghub":
+            return self.runninghub.configured()
         return provider == "edge" or bool(self._url(provider))
 
     def provider_status(self) -> list[dict[str, Any]]:
@@ -101,7 +111,7 @@ class VoiceProviderRouter:
             base = ["pilottts", "cosyvoice", "edge"]
         else:
             # Prefer configured character-voice services, keep Edge last.
-            base = ["cosyvoice", "gpt-sovits", "pilottts", "edge"]
+            base = ["runninghub", "cosyvoice", "gpt-sovits", "pilottts", "edge"]
 
         explicit_primary = os.getenv("VOICE_PRIMARY_PROVIDER", "").strip().lower()
         if explicit_primary in PROVIDER_META:
@@ -227,6 +237,8 @@ class VoiceProviderRouter:
                 enable_reverb=enable_reverb,
                 filename=f"{filename_stem}.mp3",
             )
+        if provider == "runninghub":
+            return await self.runninghub.generate(text=text, filename_stem=filename_stem)
         if provider == "gpt-sovits":
             return await self._gpt_sovits(text, language, filename_stem)
         return await self._remote_standard(

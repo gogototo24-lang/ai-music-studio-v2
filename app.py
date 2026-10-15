@@ -36,7 +36,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.6.0")
+app = FastAPI(title="AI Music Studio v2", version="2.7.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -156,7 +156,7 @@ async def health():
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
-        "version": "2.6.0",
+        "version": "2.7.0",
         "ffmpeg": runtime["ffmpeg_available"],
         "voice_providers": voice_router.provider_status(),
         "music_providers": music_router.status(),
@@ -200,9 +200,9 @@ async def api_voice_providers():
     return {
         "providers": voice_router.provider_status(),
         "recommended": {
-            "zh-TW": "auto",
+            "zh-TW": "runninghub",
             "zh-minnan": "pilottts",
-            "character_clone": "cosyvoice / gpt-sovits",
+            "character_clone": "runninghub / gpt-sovits / cosyvoice",
         },
     }
 
