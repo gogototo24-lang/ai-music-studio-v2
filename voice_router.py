@@ -238,7 +238,7 @@ class VoiceProviderRouter:
                 filename=f"{filename_stem}.mp3",
             )
         if provider == "runninghub":
-            return await self.runninghub.generate(text=text, filename_stem=filename_stem)
+            return await self.runninghub.generate(text=text, filename_stem=filename_stem, preset=preset, language=language, emotion=emotion)
         if provider == "gpt-sovits":
             return await self._gpt_sovits(text, language, filename_stem)
         return await self._remote_standard(
