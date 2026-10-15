@@ -36,13 +36,14 @@ from mixer import AudioMixer
 from video_engine import VideoEngine, MAX_DURATION, MAX_MEDIA
 from editor_engine import EditorEngine
 from music_analyzer import MusicAnalyzer
+from smart_edit_planner import SmartEditPlanner
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.9.0")
+app = FastAPI(title="AI Music Studio v2", version="3.0.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -70,6 +71,7 @@ audio_mix = AudioMixer(output_dir=str(OUTPUT_DIR))
 video_eng = VideoEngine(output_dir=str(OUTPUT_DIR))
 editor_eng = EditorEngine(output_dir=str(OUTPUT_DIR))
 music_analyzer = MusicAnalyzer(output_dir=str(OUTPUT_DIR))
+smart_edit_planner = SmartEditPlanner()
 
 SAFE_MEDIA = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "120"))
@@ -219,7 +221,7 @@ async def health():
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
-        "version": "2.9.0",
+        "version": "3.0.0",
         "ffmpeg": runtime["ffmpeg_available"],
         "voice_providers": voice_router.provider_status(),
         "music_providers": music_router.status(),
@@ -332,6 +334,8 @@ class RemoteEditorRequest(BaseModel):
     title_text: str = Field(default="", max_length=120)
     ending_text: str = Field(default="", max_length=120)
     reuse_mode: str = "cycle"
+    smart_cut: bool = True
+    clip_roles: List[str] = Field(default_factory=list)
 
 
 class MusicRequest(BaseModel):
@@ -398,7 +402,7 @@ async def api_editor_status():
     return {
         "ok": True,
         "name": "CatPaw AI 剪輯師",
-        "version": "0.5",
+        "version": "0.6",
         "engine": "ffmpeg",
         "audio_extract": True,
         "music_analysis": True,
@@ -406,6 +410,8 @@ async def api_editor_status():
         "chorus_candidates": True,
         "remote_url_ingest": True,
         "technical_probe": True,
+        "smart_cut": True,
+        "clip_roles": ["hero", "performance", "action", "impact", "ending", "neutral"],
         "max_clips": 30,
         "aspects": ["9:16", "16:9"],
         "qualities": ["720p", "1080p"],
@@ -500,11 +506,29 @@ async def api_editor_render_from_urls(req: RemoteEditorRequest):
         except Exception:
             music_analysis = None
 
+    smart_plan = None
+    render_paths = [str(p) for p in clip_paths]
+    render_trims = trims
+    if req.smart_cut:
+        clip_meta = [editor_eng.probe_media(str(p)) for p in clip_paths]
+        clip_durations = [float(x.get("duration") or 0) for x in clip_meta]
+        smart_plan = smart_edit_planner.plan(
+            clip_durations=clip_durations,
+            clip_roles=req.clip_roles,
+            music_analysis=music_analysis,
+            target_seconds=req.target_seconds,
+        )
+        render_paths = [str(clip_paths[item["clip_index"]]) for item in smart_plan["timeline"]]
+        render_trims = [
+            {"start": item["source_start"], "end": item["source_end"]}
+            for item in smart_plan["timeline"]
+        ]
+
     out_filename = unique_name("catpaw_remote_edit.mp4", ".mp4")
     job_id = uuid.uuid4().hex[:12]
     kwargs = {
-        "clip_paths": [str(p) for p in clip_paths],
-        "trim_specs": trims,
+        "clip_paths": render_paths,
+        "trim_specs": render_trims,
         "aspect": req.aspect,
         "quality": req.quality,
         "transition": req.transition,
@@ -523,6 +547,7 @@ async def api_editor_render_from_urls(req: RemoteEditorRequest):
         job_type="editor",
         remote_ingest=True,
         music_analysis=music_analysis,
+        smart_plan=smart_plan,
         source_clip_count=len(clip_paths),
     )
     threading.Thread(target=_run_editor_job, args=(job_id, kwargs), daemon=True).start()
@@ -532,6 +557,7 @@ async def api_editor_render_from_urls(req: RemoteEditorRequest):
         "job_type": "editor",
         "remote_ingest": True,
         "music_analysis": music_analysis,
+        "smart_plan": smart_plan,
     }
 
 
