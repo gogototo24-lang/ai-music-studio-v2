@@ -1,0 +1,94 @@
+name: Liuxia Song Demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/liuxia-song-demo.yml'
+
+jobs:
+  build-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Wait for Liuxia preset
+        run: |
+          for i in $(seq 1 30); do
+            BODY=$(curl -fsS --max-time 60 https://ai-music-studio-v2.onrender.com/api/voice/presets || true)
+            echo "$BODY" | grep -q '"key":"liuxia"' && { echo "Liuxia preset is live"; exit 0; }
+            echo "Waiting for deploy... $i"
+            sleep 10
+          done
+          exit 1
+
+      - name: Prepare payloads
+        run: |
+          cat > voice.json <<'JSON'
+          {
+            "text": "暮色染過千重山，一縷霞光落衣衫。風過劍痕人未返，誰把舊夢藏雲端。月照長街燈影寒，我踏孤城不回看。若問此心為誰燃，一念成霞破夜瀾。霜落無聲，風起無言，命數若鎖我眉間，便以一身琉光，照開這人世萬千。我是琉霞，一念照江湖。縱然千山萬劫，不肯退一步。霞光若散，就化滿天星雨。此生不問歸途，只問誰敢擋我路。我是琉霞，孤影踏長霧。昨日傷痕今日，都化作劍舞。若這天地容不下一身傲骨，那便讓我的光，照亮整座江湖。",
+            "preset": "liuxia",
+            "provider": "runninghub",
+            "language": "zh-TW",
+            "emotion": "heroic",
+            "reference_id": "",
+            "enable_reverb": true
+          }
+          JSON
+          cat > music.json <<'JSON'
+          {
+            "provider": "musicgen",
+            "title": "琉霞一念 Demo",
+            "style": "tragic_ballad",
+            "prompt": "cinematic oriental wuxia, ethereal female-hero atmosphere, guzheng, erhu, cello, deep war drums, dramatic strings, restrained opening, rising heroic climax, 82 bpm, minor key",
+            "lyrics": "",
+            "duration": 100,
+            "use_fallback": true
+          }
+          JSON
+
+      - name: Generate Liuxia voice
+        run: |
+          CODE=$(curl -sS --max-time 300 -o voice_response.json -w "%{http_code}"             -X POST https://ai-music-studio-v2.onrender.com/api/voice/generate             -H 'Content-Type: application/json' --data @voice.json)
+          echo "VOICE_HTTP=$CODE"
+          cat voice_response.json
+          test "$CODE" = "200"
+
+      - name: Generate wuxia BGM
+        run: |
+          CODE=$(curl -sS --max-time 180 -o music_response.json -w "%{http_code}"             -X POST https://ai-music-studio-v2.onrender.com/api/music/generate             -H 'Content-Type: application/json' --data @music.json)
+          echo "MUSIC_HTTP=$CODE"
+          cat music_response.json
+          test "$CODE" = "200"
+
+      - name: Download generated audio
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request, pathlib
+          base='https://ai-music-studio-v2.onrender.com'
+          for kind in ('voice','music'):
+              data=json.load(open(f'{kind}_response.json', encoding='utf-8'))
+              url=data['audio_url']
+              if url.startswith('/'): url=base+url
+              name=pathlib.Path(url.split('?')[0]).name
+              urllib.request.urlretrieve(url, name)
+              with open(os.environ['GITHUB_ENV'],'a') as f:
+                  f.write(f"{kind.upper()}_FILE={name}\n")
+              print(kind, name, pathlib.Path(name).stat().st_size)
+          PY
+
+      - name: Mix Liuxia demo
+        run: |
+          CODE=$(curl -sS --max-time 180 -o mix_response.json -w "%{http_code}"             -X POST https://ai-music-studio-v2.onrender.com/api/mix             -F "voice_file=@${VOICE_FILE}"             -F "bgm_file=@${MUSIC_FILE}"             -F "voice_delay_ms=300"             -F "bgm_volume=0.30"             -F "ducking=true")
+          echo "MIX_HTTP=$CODE"
+          cat mix_response.json
+          test "$CODE" = "200"
+
+      - name: Print final URL
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('mix_response.json', encoding='utf-8'))
+          u=d['audio_url']
+          if u.startswith('/'): u='https://ai-music-studio-v2.onrender.com'+u
+          print('FINAL_AUDIO_URL='+u)
+          PY
