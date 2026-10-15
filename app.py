@@ -64,7 +64,7 @@ audio_mix = AudioMixer(output_dir=str(OUTPUT_DIR))
 video_eng = VideoEngine(output_dir=str(OUTPUT_DIR))
 editor_eng = EditorEngine(output_dir=str(OUTPUT_DIR))
 
-SAFE_MEDIA = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png", ".webp"}
+SAFE_MEDIA = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "120"))
 JOBS: dict = {}
 JOBS_LOCK = threading.Lock()
@@ -362,7 +362,7 @@ async def api_editor_render(
     music_path = None
     if music_file and music_file.filename:
         music_path = await save_upload(music_file)
-        if music_path.suffix.lower() not in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}:
+        if music_path.suffix.lower() not in {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"}:
             raise HTTPException(status_code=422, detail="music_file 必須是音訊檔")
 
     kwargs = {
