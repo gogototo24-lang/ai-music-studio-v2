@@ -12,8 +12,13 @@ import re
 import shutil
 import threading
 import uuid
+import ipaddress
+import socket
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import List
+
+import httpx
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import HTMLResponse
@@ -37,7 +42,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.7.0")
+app = FastAPI(title="AI Music Studio v2", version="2.8.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -81,6 +86,62 @@ def safe_stem(name: str) -> str:
 def unique_name(original: str, forced_ext: str | None = None) -> str:
     suffix = forced_ext or Path(original or "").suffix.lower()
     return f"{safe_stem(original)}_{uuid.uuid4().hex[:10]}{suffix}"
+
+
+def _validate_remote_url(raw: str) -> str:
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        raise HTTPException(status_code=422, detail="遠端素材 URL 格式錯誤")
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise HTTPException(status_code=422, detail="遠端素材只允許 HTTPS")
+    host = parsed.hostname.lower()
+    if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local"):
+        raise HTTPException(status_code=422, detail="不允許本機或私有網路 URL")
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
+        for info in infos:
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+                raise HTTPException(status_code=422, detail="不允許解析到私有網路的 URL")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=422, detail="遠端素材網域無法解析")
+    return raw
+
+
+async def download_remote_media(raw_url: str, kind: str) -> Path:
+    url = _validate_remote_url(raw_url)
+    allowed = {
+        "video": {".mp4", ".mov", ".webm"},
+        "audio": {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"},
+    }[kind]
+    suffix = Path(urlparse(url).path).suffix.lower()
+    if suffix not in allowed:
+        suffix = ".mp4" if kind == "video" else ".mp3"
+    target = OUTPUT_DIR / unique_name(f"remote{suffix}", suffix)
+    total = 0
+    timeout = httpx.Timeout(60.0, connect=20.0)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+        async with client.stream("GET", url, headers={"User-Agent": "CatPaw-Editor/0.4"}) as resp:
+            if resp.status_code >= 400:
+                raise HTTPException(status_code=422, detail=f"遠端素材下載失敗：HTTP {resp.status_code}")
+            final_url = str(resp.url)
+            _validate_remote_url(final_url)
+            content_type = (resp.headers.get("content-type") or "").lower()
+            if kind == "video" and not ("video/" in content_type or "octet-stream" in content_type):
+                raise HTTPException(status_code=422, detail=f"遠端影片 content-type 不符：{content_type or 'unknown'}")
+            if kind == "audio" and not ("audio/" in content_type or "octet-stream" in content_type):
+                raise HTTPException(status_code=422, detail=f"遠端音訊 content-type 不符：{content_type or 'unknown'}")
+            with target.open("wb") as out:
+                async for chunk in resp.aiter_bytes(1024 * 1024):
+                    total += len(chunk)
+                    if total > MAX_UPLOAD_MB * 1024 * 1024:
+                        target.unlink(missing_ok=True)
+                        raise HTTPException(status_code=413, detail=f"遠端單檔不可超過 {MAX_UPLOAD_MB} MB")
+                    out.write(chunk)
+    return target
 
 
 async def save_upload(file: UploadFile) -> Path:
@@ -158,7 +219,7 @@ async def health():
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
-        "version": "2.7.0",
+        "version": "2.8.0",
         "ffmpeg": runtime["ffmpeg_available"],
         "voice_providers": voice_router.provider_status(),
         "music_providers": music_router.status(),
@@ -254,6 +315,20 @@ async def api_generate_voice(req: VoiceRequest):
     }
 
 
+class RemoteEditorRequest(BaseModel):
+    clip_urls: List[str] = Field(min_length=1, max_length=30)
+    music_url: str | None = None
+    trim_specs: List[dict] = Field(default_factory=list)
+    aspect: str = "9:16"
+    quality: str = "720p"
+    transition: str = "cut"
+    target_seconds: float = Field(default=30, ge=1, le=900)
+    original_audio_volume: float = Field(default=0.18, ge=0, le=1)
+    title_text: str = Field(default="", max_length=120)
+    ending_text: str = Field(default="", max_length=120)
+    reuse_mode: str = "cycle"
+
+
 class MusicRequest(BaseModel):
     provider: str = "auto"
     title: str = ""
@@ -318,12 +393,13 @@ async def api_editor_status():
     return {
         "ok": True,
         "name": "CatPaw AI 剪輯師",
-        "version": "0.3",
+        "version": "0.4",
         "engine": "ffmpeg",
         "audio_extract": True,
         "music_analysis": True,
         "bpm_estimate": True,
         "chorus_candidates": True,
+        "remote_url_ingest": True,
         "max_clips": 30,
         "aspects": ["9:16", "16:9"],
         "qualities": ["720p", "1080p"],
@@ -370,6 +446,73 @@ async def api_editor_analyze_music(file: UploadFile = File(...)):
         return {"status": "success", **music_analyzer.analyze(str(source))}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/editor/render-from-urls")
+async def api_editor_render_from_urls(req: RemoteEditorRequest):
+    if req.aspect not in {"9:16", "16:9"}:
+        raise HTTPException(status_code=422, detail="aspect 只支援 9:16 / 16:9")
+    if req.quality not in {"720p", "1080p"}:
+        raise HTTPException(status_code=422, detail="quality 只支援 720p / 1080p")
+    if req.transition not in {"cut", "fade"}:
+        raise HTTPException(status_code=422, detail="transition 只支援 cut / fade")
+    if req.reuse_mode != "cycle":
+        raise HTTPException(status_code=422, detail="reuse_mode 目前只支援 cycle")
+
+    clip_paths = []
+    try:
+        for url in req.clip_urls:
+            clip_paths.append(await download_remote_media(url, "video"))
+        music_path = await download_remote_media(req.music_url, "audio") if req.music_url else None
+    except Exception:
+        for p in clip_paths:
+            p.unlink(missing_ok=True)
+        raise
+
+    trims = req.trim_specs or [{} for _ in clip_paths]
+    if len(trims) != len(clip_paths):
+        raise HTTPException(status_code=422, detail="trim_specs 數量必須與 clip_urls 相同")
+
+    music_analysis = None
+    if music_path:
+        try:
+            music_analysis = music_analyzer.analyze(str(music_path))
+        except Exception:
+            music_analysis = None
+
+    out_filename = unique_name("catpaw_remote_edit.mp4", ".mp4")
+    job_id = uuid.uuid4().hex[:12]
+    kwargs = {
+        "clip_paths": [str(p) for p in clip_paths],
+        "trim_specs": trims,
+        "aspect": req.aspect,
+        "quality": req.quality,
+        "transition": req.transition,
+        "output_filename": out_filename,
+        "fps": 24,
+        "target_seconds": req.target_seconds,
+        "music_path": str(music_path) if music_path else None,
+        "original_audio_volume": req.original_audio_volume,
+        "title_text": req.title_text,
+        "ending_text": req.ending_text,
+        "reuse_mode": req.reuse_mode,
+    }
+    _set_job(
+        job_id,
+        status="queued",
+        job_type="editor",
+        remote_ingest=True,
+        music_analysis=music_analysis,
+        source_clip_count=len(clip_paths),
+    )
+    threading.Thread(target=_run_editor_job, args=(job_id, kwargs), daemon=True).start()
+    return {
+        "status": "queued",
+        "job_id": job_id,
+        "job_type": "editor",
+        "remote_ingest": True,
+        "music_analysis": music_analysis,
+    }
+
 
 @app.post("/api/editor/render")
 async def api_editor_render(
