@@ -2,13 +2,11 @@
 """
 Voice provider router.
 
-Keep the lightweight Render service stable:
-- edge: local fallback, always available
-- cosyvoice: optional remote adapter
-- pilottts: optional remote adapter, recommended for zh-minnan experiments
-- gpt-sovits: optional official HTTP API service
-
-Large models are intentionally NOT installed in the lite Render image.
+Integration-safe behavior:
+- /api/voice/generate stays the single stable entry point for n8n.
+- auto prefers configured self-hosted / remote providers before Edge.
+- a provider failure can fall through to the next configured provider.
+- Edge remains the last fallback for zh-TW preview use.
 """
 from __future__ import annotations
 
@@ -64,32 +62,68 @@ class VoiceProviderRouter:
         key = env_map.get(provider)
         return (os.getenv(key, "") if key else "").strip().rstrip("/")
 
+    def _configured(self, provider: str) -> bool:
+        return provider == "edge" or bool(self._url(provider))
+
     def provider_status(self) -> list[dict[str, Any]]:
-        primary = os.getenv("VOICE_PRIMARY_PROVIDER", "edge").strip().lower() or "edge"
+        primary = os.getenv("VOICE_PRIMARY_PROVIDER", "").strip().lower() or "auto"
         items = []
         for key, meta in PROVIDER_META.items():
-            configured = key == "edge" or bool(self._url(key))
             items.append({
                 "key": key,
                 **meta,
-                "configured": configured,
+                "configured": self._configured(key),
                 "primary": key == primary,
             })
         return items
 
-    def _pick_provider(self, requested: str, language: str) -> str:
+    def _provider_candidates(self, requested: str, language: str) -> list[str]:
         requested = (requested or "auto").strip().lower()
+        lang = (language or "").strip().lower()
+        is_minnan = lang in {"minnan", "zh-minnan", "taiwanese", "nan-tw"}
+
+        if requested != "auto" and requested not in PROVIDER_META:
+            raise RuntimeError(f"未知聲線 provider：{requested}")
+
+        # Optional explicit fallback order, e.g.
+        # VOICE_FALLBACK_ORDER=pilottts,cosyvoice,gpt-sovits,edge
+        custom = [
+            p.strip().lower()
+            for p in os.getenv("VOICE_FALLBACK_ORDER", "").split(",")
+            if p.strip()
+        ]
+        custom = [p for p in custom if p in PROVIDER_META]
+
+        if custom:
+            base = custom
+        elif is_minnan:
+            # GPT-SoVITS is intentionally not in the default Minnan route.
+            base = ["pilottts", "cosyvoice", "edge"]
+        else:
+            # Prefer configured character-voice services, keep Edge last.
+            base = ["cosyvoice", "gpt-sovits", "pilottts", "edge"]
+
+        explicit_primary = os.getenv("VOICE_PRIMARY_PROVIDER", "").strip().lower()
+        if explicit_primary in PROVIDER_META:
+            base = [explicit_primary] + base
+
         if requested != "auto":
-            return requested
+            base = [requested] + base
 
-        primary = os.getenv("VOICE_PRIMARY_PROVIDER", "edge").strip().lower() or "edge"
-        if primary in PROVIDER_META and (primary == "edge" or self._url(primary)):
-            return primary
+        seen = set()
+        candidates = []
+        for provider in base:
+            if provider in seen:
+                continue
+            seen.add(provider)
+            if self._configured(provider):
+                candidates.append(provider)
 
-        # Prefer PilotTTS for Minnan only when it is explicitly configured.
-        if (language or "").lower() in {"minnan", "zh-minnan", "taiwanese", "nan-tw"} and self._url("pilottts"):
-            return "pilottts"
-        return "edge"
+        # Edge is always available as the final compatibility fallback.
+        if "edge" not in seen:
+            candidates.append("edge")
+
+        return candidates
 
     async def _save_response_audio(self, response: httpx.Response, filename_stem: str) -> str:
         content_type = response.headers.get("content-type", "").lower()
@@ -133,7 +167,9 @@ class VoiceProviderRouter:
             response = await client.post(f"{base}/synthesize", json=payload)
         if response.status_code >= 400:
             detail = response.text[:400]
-            raise RuntimeError(f"{PROVIDER_META[provider]['name']} 失敗：HTTP {response.status_code} {detail}")
+            raise RuntimeError(
+                f"{PROVIDER_META[provider]['name']} 失敗：HTTP {response.status_code} {detail}"
+            )
         return await self._save_response_audio(response, filename_stem)
 
     async def _gpt_sovits(
@@ -157,14 +193,51 @@ class VoiceProviderRouter:
             "ko": "ko",
         }
         if lang not in lang_map:
-            raise RuntimeError("GPT-SoVITS 這條路徑目前不作台語／閩南語主力，請改用 PilotTTS 或 CosyVoice")
+            raise RuntimeError(
+                "GPT-SoVITS 這條路徑目前不作台語／閩南語主力，請改用 PilotTTS 或 CosyVoice"
+            )
         payload = {"text": text, "text_language": lang_map[lang]}
         timeout = httpx.Timeout(120.0, connect=20.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(base + "/", json=payload)
         if response.status_code >= 400:
-            raise RuntimeError(f"GPT-SoVITS 失敗：HTTP {response.status_code} {response.text[:400]}")
+            raise RuntimeError(
+                f"GPT-SoVITS 失敗：HTTP {response.status_code} {response.text[:400]}"
+            )
         return await self._save_response_audio(response, filename_stem)
+
+    async def _generate_with_provider(
+        self,
+        provider: str,
+        *,
+        text: str,
+        preset: str,
+        language: str,
+        emotion: str,
+        reference_id: str,
+        enable_reverb: bool,
+        filename_stem: str,
+    ) -> str:
+        if provider == "edge":
+            if preset not in CHARACTER_PRESETS:
+                raise RuntimeError(f"未知聲線 preset：{preset}")
+            return await self.edge_engine.generate_voice(
+                text=text,
+                preset_key=preset,
+                enable_reverb=enable_reverb,
+                filename=f"{filename_stem}.mp3",
+            )
+        if provider == "gpt-sovits":
+            return await self._gpt_sovits(text, language, filename_stem)
+        return await self._remote_standard(
+            provider,
+            text,
+            preset,
+            language,
+            emotion,
+            reference_id,
+            filename_stem,
+        )
 
     async def generate(
         self,
@@ -178,30 +251,33 @@ class VoiceProviderRouter:
         enable_reverb: bool = True,
         filename_stem: str = "voice",
     ) -> dict[str, Any]:
-        selected = self._pick_provider(provider, language)
-        if selected not in PROVIDER_META:
-            raise RuntimeError(f"未知聲線 provider：{selected}")
+        candidates = self._provider_candidates(provider, language)
+        errors: list[str] = []
 
-        if selected == "edge":
-            if preset not in CHARACTER_PRESETS:
-                raise RuntimeError(f"未知聲線 preset：{preset}")
-            output = await self.edge_engine.generate_voice(
-                text=text,
-                preset_key=preset,
-                enable_reverb=enable_reverb,
-                filename=f"{filename_stem}.mp3",
-            )
-        elif selected == "gpt-sovits":
-            output = await self._gpt_sovits(text, language, filename_stem)
-        else:
-            output = await self._remote_standard(
-                selected, text, preset, language, emotion, reference_id, filename_stem
-            )
+        for index, selected in enumerate(candidates):
+            try:
+                output = await self._generate_with_provider(
+                    selected,
+                    text=text,
+                    preset=preset,
+                    language=language,
+                    emotion=emotion,
+                    reference_id=reference_id,
+                    enable_reverb=enable_reverb,
+                    filename_stem=filename_stem,
+                )
+                return {
+                    "path": output,
+                    "provider": selected,
+                    "provider_name": PROVIDER_META[selected]["name"],
+                    "language": language,
+                    "emotion": emotion,
+                    "fallback_used": index > 0,
+                    "attempted_providers": candidates[: index + 1],
+                }
+            except Exception as exc:
+                errors.append(f"{selected}: {exc}")
 
-        return {
-            "path": output,
-            "provider": selected,
-            "provider_name": PROVIDER_META[selected]["name"],
-            "language": language,
-            "emotion": emotion,
-        }
+        raise RuntimeError(
+            "所有可用聲線 provider 都失敗：" + " | ".join(errors)
+        )
