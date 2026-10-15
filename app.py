@@ -42,7 +42,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 TEMPLATE_DIR = BASE_DIR / "templates"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="AI Music Studio v2", version="2.8.0")
+app = FastAPI(title="AI Music Studio v2", version="2.9.0")
 
 default_origins = [
     "http://localhost:8000",
@@ -219,7 +219,7 @@ async def health():
     return {
         "ok": True,
         "service": "ai-music-studio-v2",
-        "version": "2.8.0",
+        "version": "2.9.0",
         "ffmpeg": runtime["ffmpeg_available"],
         "voice_providers": voice_router.provider_status(),
         "music_providers": music_router.status(),
@@ -315,6 +315,11 @@ async def api_generate_voice(req: VoiceRequest):
     }
 
 
+class RemoteProbeRequest(BaseModel):
+    url: str
+    kind: str = "video"
+
+
 class RemoteEditorRequest(BaseModel):
     clip_urls: List[str] = Field(min_length=1, max_length=30)
     music_url: str | None = None
@@ -393,13 +398,14 @@ async def api_editor_status():
     return {
         "ok": True,
         "name": "CatPaw AI 剪輯師",
-        "version": "0.4",
+        "version": "0.5",
         "engine": "ffmpeg",
         "audio_extract": True,
         "music_analysis": True,
         "bpm_estimate": True,
         "chorus_candidates": True,
         "remote_url_ingest": True,
+        "technical_probe": True,
         "max_clips": 30,
         "aspects": ["9:16", "16:9"],
         "qualities": ["720p", "1080p"],
@@ -446,6 +452,21 @@ async def api_editor_analyze_music(file: UploadFile = File(...)):
         return {"status": "success", **music_analyzer.analyze(str(source))}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/editor/probe-url")
+async def api_editor_probe_url(req: RemoteProbeRequest):
+    kind = req.kind if req.kind in {"video", "audio"} else "video"
+    path = await download_remote_media(req.url, kind)
+    try:
+        meta = editor_eng.probe_media(str(path))
+        if kind == "video" and not meta.get("has_video"):
+            raise HTTPException(status_code=422, detail="遠端素材不是可讀影片")
+        if kind == "audio" and not meta.get("has_audio"):
+            raise HTTPException(status_code=422, detail="遠端素材不是可讀音訊")
+        return {"status": "success", "kind": kind, "meta": meta}
+    finally:
+        path.unlink(missing_ok=True)
+
 
 @app.post("/api/editor/render-from-urls")
 async def api_editor_render_from_urls(req: RemoteEditorRequest):
