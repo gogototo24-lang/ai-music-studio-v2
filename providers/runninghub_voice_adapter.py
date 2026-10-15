@@ -10,7 +10,7 @@ Environment:
 RUNNINGHUB_API_KEY
 RUNNINGHUB_VOICE_WORKFLOW_ID
 RUNNINGHUB_TEXT_NODE_ID
-RUNNINGHUB_TEXT_FIELD=text
+RUNNINGHUB_TEXT_FIELD=prompt\nRUNNINGHUB_SPEAKER_NODE_ID=11\nRUNNINGHUB_SPEAKER_FIELD=prompt
 RUNNINGHUB_POLL_SECONDS=5
 RUNNINGHUB_MAX_WAIT_SECONDS=180
 RUNNINGHUB_BASE_URL=https://www.runninghub.ai
@@ -41,7 +41,7 @@ class RunningHubVoiceAdapter:
         api_key = os.getenv("RUNNINGHUB_API_KEY", "").strip()
         workflow_id = os.getenv("RUNNINGHUB_VOICE_WORKFLOW_ID", "").strip()
         text_node_id = os.getenv("RUNNINGHUB_TEXT_NODE_ID", "").strip()
-        text_field = os.getenv("RUNNINGHUB_TEXT_FIELD", "text").strip() or "text"
+        text_field = os.getenv("RUNNINGHUB_TEXT_FIELD", "prompt").strip() or "prompt"\n        speaker_node_id = os.getenv("RUNNINGHUB_SPEAKER_NODE_ID", "").strip()\n        speaker_field = os.getenv("RUNNINGHUB_SPEAKER_FIELD", "prompt").strip() or "prompt"
         base_url = os.getenv("RUNNINGHUB_BASE_URL", "https://www.runninghub.ai").rstrip("/")
         poll_seconds = float(os.getenv("RUNNINGHUB_POLL_SECONDS", "5"))
         max_wait = float(os.getenv("RUNNINGHUB_MAX_WAIT_SECONDS", "180"))
@@ -54,7 +54,7 @@ class RunningHubVoiceAdapter:
             "api_key": api_key,
             "workflow_id": workflow_id,
             "text_node_id": text_node_id,
-            "text_field": text_field,
+            "text_field": text_field,\n            "speaker_node_id": speaker_node_id,\n            "speaker_field": speaker_field,
             "base_url": base_url,
             "poll_seconds": poll_seconds,
             "max_wait": max_wait,
