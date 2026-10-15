@@ -139,15 +139,22 @@ class MusicEngine:
         if not shutil.which("ffmpeg"):
             raise RuntimeError(f"MusicGen 不可用，且找不到 FFmpeg。MusicGen 狀態：{musicgen_error}")
 
-        lavfi = (
-            f"aevalsrc=0:d={duration}:s=44100[zero];"
-            f"sine=f=110:d={duration}:s=44100,volume=0.11[a];"
-            f"sine=f=164.81:d={duration}:s=44100,volume=0.06[b];"
-            f"sine=f=220:d={duration}:s=44100,volume=0.05[c];"
-            f"anoisesrc=d={duration}:c=pink:r=44100:a=0.018,lowpass=f=1000[n];"
-            f"[a][b][c][n]amix=inputs=4:duration=longest,afade=t=in:st=0:d=1,afade=t=out:st={max(1,duration-1)}:d=1"
+        source = f"sine=frequency=110:duration={duration}:sample_rate=44100"
+        fade_out = max(1, int(duration) - 2)
+        audio_filter = (
+            "volume=0.10,"
+            "lowpass=f=1400,"
+            "aecho=0.75:0.35:180:0.18,"
+            "afade=t=in:st=0:d=2,"
+            f"afade=t=out:st={fade_out}:d=2"
         )
-        cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", lavfi, "-c:a", "pcm_s16le", str(output_path)]
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", source,
+            "-af", audio_filter,
+            "-c:a", "pcm_s16le",
+            str(output_path),
+        ]
         r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if r.returncode != 0:
             raise RuntimeError("FFmpeg demo BGM 生成失敗：" + r.stderr.decode("utf-8", "ignore")[:240])
