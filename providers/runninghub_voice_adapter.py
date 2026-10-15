@@ -74,6 +74,7 @@ class RunningHubVoiceAdapter:
             "moonfan": "成熟女性，聲線清冷內斂，語速偏慢，情緒克制",
             "suili": "年輕女性，聲線空靈柔和，語速偏慢，帶神秘感",
             "liuli": "年輕女性，聲線溫柔明亮，語速自然，親和但不稚嫩",
+            "liuxia": "成熟女性，聲線清冷略帶沙啞，語速偏慢，前段克制，句尾孤傲，高潮時提升力度但不尖銳，帶俠氣與宿命感",
         }
         desc = profiles.get(preset, profiles["heroine"])
         return f"[spk1]{desc}；語言={language}；情緒={emotion}"
