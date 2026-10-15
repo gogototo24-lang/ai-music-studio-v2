@@ -18,21 +18,15 @@ class AudioMixer:
             raise RuntimeError("找不到 FFmpeg。")
 
         output_path = self.output_dir / output_filename
-        if ducking:
-            fc = (
-                f"[0:a]volume={bgm_volume}[bgm];"
-                f"[1:a]adelay={voice_delay_ms}|{voice_delay_ms},volume=1.12[voice];"
-                f"[bgm][voice]sidechaincompress=threshold=0.025:ratio=7:attack=18:release=260[ducked];"
-                f"[ducked][voice]amix=inputs=2:duration=longest:dropout_transition=2,alimiter=limit=0.95[out]"
-            )
-            engine = "sidechain_ducking"
-        else:
-            fc = (
-                f"[0:a]volume={bgm_volume}[bgm];"
-                f"[1:a]adelay={voice_delay_ms}|{voice_delay_ms},volume=1.12[voice];"
-                f"[bgm][voice]amix=inputs=2:duration=longest:dropout_transition=2,alimiter=limit=0.95[out]"
-            )
-            engine = "simple_mix"
+        # Keep character voice clearly audible. Previous side-chain settings could
+        # over-compress low-level TTS and make the resulting MP3 sound silent.
+        fc = (
+            f"[0:a]volume={min(float(bgm_volume), 0.18)}[bgm];"
+            f"[1:a]adelay={voice_delay_ms}|{voice_delay_ms},volume=2.20[voice];"
+            f"[bgm][voice]amix=inputs=2:duration=longest:weights='0.65 1.45':normalize=0,"
+            f"loudnorm=I=-16:LRA=9:TP=-1.5,alimiter=limit=0.95[out]"
+        )
+        engine = "voice_forward_loudnorm"
 
         cmd = [
             "ffmpeg", "-y",
